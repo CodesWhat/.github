@@ -1,0 +1,2 @@
+# Track cache files (needed for CI)
+!*.json

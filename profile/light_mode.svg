@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1010" viewBox="0 0 800 1010">
+<style>
+@font-face {
+    src: local('Consolas'), local('Monaco'), local('Menlo');
+    font-family: 'MonoFallback';
+    font-display: swap;
+}
+text {
+    font-family: 'MonoFallback', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 14px;
+    white-space: pre;
+    dominant-baseline: text-before-edge;
+}
+.text { fill: #0969da; }
+.gray { fill: #57606a; }
+.magenta { fill: #c026d3; }
+.green { fill: #65a30d; }
+.red { fill: #dc2626; }
+.orange { fill: #ea580c; }
+.yellow { fill: #d97706; }
+</style>
+<rect width="800" height="1010" fill="#f6f8fa" rx="10"/>
+<text x="400" y="30" text-anchor="middle" class="yellow">                                                                                          </text>
+<text x="400" y="50" text-anchor="middle" class="yellow">                                     **********************                               </text>
+<text x="400" y="70" text-anchor="middle" class="yellow">                                  ****************************                            </text>
+<text x="400" y="90" text-anchor="middle" class="yellow">                                ****     ******************  ****                          </text>
+<text x="400" y="110" text-anchor="middle" class="yellow">                               ***          ************       ***                         </text>
+<text x="400" y="130" text-anchor="middle" class="yellow">                               ***           **********        ***                         </text>
+<text x="400" y="150" text-anchor="middle" class="yellow">                               ***            ********         ***                         </text>
+<text x="400" y="170" text-anchor="middle" class="yellow">                                ****          ********       ****                          </text>
+<text x="400" y="190" text-anchor="middle" class="yellow">                                  ****       ********     ****                             </text>
+<text x="400" y="210" text-anchor="middle" class="yellow">                                    ****    ********    ****                               </text>
+<text x="400" y="230" text-anchor="middle" class="yellow">                                      ***  ********   ***                                  </text>
+<text x="400" y="250" text-anchor="middle" class="yellow">                                       *** ******** ***                                    </text>
+<text x="400" y="270" text-anchor="middle" class="yellow">                                        ** ******** **                                     </text>
+<text x="400" y="290" text-anchor="middle" class="yellow">                                           ********                                        </text>
+<text x="400" y="310" text-anchor="middle" class="yellow">                                           ********                                        </text>
+<text x="400" y="330" text-anchor="middle" class="yellow">                                            ******                                         </text>
+<text x="400" y="350" text-anchor="middle" class="yellow">                                             ****                                          </text>
+<text x="400" y="370" text-anchor="middle" class="yellow">                                                                                          </text>
+<text x="400" y="390" text-anchor="middle" class="yellow">                                             ****                                          </text>
+<text x="400" y="410" text-anchor="middle" class="yellow">                                            ******                                         </text>
+<text x="400" y="430" text-anchor="middle" class="yellow">                                             ****                                          </text>
+<text x="400" y="450" text-anchor="middle" class="yellow">                                                                                          </text>
+<text x="400" y="480" text-anchor="middle" class="text">C o d e s W h a t ?</text>
+<text x="400" y="510" text-anchor="middle" class="gray">building things that make you go 'huh, neat'</text>
+<text x="400" y="550" text-anchor="middle" class="orange">---------------------------------------- ORG INFO ----------------------------------------</text>
+<text x="400" y="580" text-anchor="middle" class="gray">Members: ............................................................................... 1</text>
+<text x="400" y="600" text-anchor="middle" class="gray">Languages: ............................................................. Swift, TypeScript</text>
+<text x="400" y="620" text-anchor="middle" class="gray">Focus: ....................................... AI Tools, Developer Experience, Open Source</text>
+<text x="400" y="660" text-anchor="middle" class="green">--------------------------------------- ORG STATS ----------------------------------------</text>
+<text x="400" y="690" text-anchor="middle" class="gray">Repositories: ....................................................... 1 public / 3 private</text>
+<text x="400" y="710" text-anchor="middle" class="gray">Total Stars: ........................................................................... 0</text>
+<text x="400" y="730" text-anchor="middle" class="gray">Total Forks: ........................................................................... 0</text>
+<text x="400" y="750" text-anchor="middle" class="gray">Total Commits: ....................................................................... 398</text>
+<text x="400" y="770" text-anchor="middle" class="gray">Pull Requests: ........................................................................ 11</text>
+<text x="22.0" y="790" class="gray">Lines of Code: ............................................. 71,059 ( </text>
+<text x="610.0" y="790" class="green">+354,732</text>
+<text x="677.2" y="790" class="gray">, </text>
+<text x="694.0" y="790" class="red">-283,673</text>
+<text x="761.2" y="790" class="gray"> )</text>
+<text x="400" y="830" text-anchor="middle" class="magenta">--------------------------------------- PROJECTS -----------------------------------------</text>
+<text x="400" y="860" text-anchor="middle" class="gray">whatsupdocker-ce: ...................................... container image update monitoring</text>
+<text x="400" y="880" text-anchor="middle" class="gray">smithers: ................................................ secure self-hosted AI assistant</text>
+<text x="400" y="900" text-anchor="middle" class="gray">mylair: .................................................... social platform for AI agents</text>
+<text x="400" y="930" text-anchor="middle" class="gray">// CodesWhat? codes what needs coding.</text>
+<text x="400" y="960" text-anchor="middle" class="gray">Last Updated: 2026-02-09</text>
+</svg>
