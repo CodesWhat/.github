@@ -46,11 +46,11 @@ text {
 <text x="400" y="480" text-anchor="middle" class="text">C o d e s W h a t ?</text>
 <text x="400" y="510" text-anchor="middle" class="gray">building things that make you go 'huh, neat'</text>
 <text x="400" y="550" text-anchor="middle" class="orange">---------------------------------------- ORG INFO ----------------------------------------</text>
-<text x="400" y="580" text-anchor="middle" class="gray">Members: ............................................................................... 1</text>
-<text x="400" y="600" text-anchor="middle" class="gray">Languages: ............................................................. Swift, TypeScript</text>
+<text x="400" y="580" text-anchor="middle" class="gray">Members: ............................................................................... 0</text>
+<text x="400" y="600" text-anchor="middle" class="gray">Languages: ..................................................... Python, Swift, TypeScript</text>
 <text x="400" y="620" text-anchor="middle" class="gray">Focus: ....................................... AI Tools, Developer Experience, Open Source</text>
 <text x="400" y="660" text-anchor="middle" class="green">--------------------------------------- ORG STATS ----------------------------------------</text>
-<text x="400" y="690" text-anchor="middle" class="gray">Repositories: ....................................................... 1 public / 3 private</text>
+<text x="400" y="690" text-anchor="middle" class="gray">Repositories: ....................................................... 2 public / 3 private</text>
 <text x="400" y="710" text-anchor="middle" class="gray">Total Stars: ........................................................................... 0</text>
 <text x="400" y="730" text-anchor="middle" class="gray">Total Forks: ........................................................................... 0</text>
 <text x="400" y="750" text-anchor="middle" class="gray">Total Commits: ....................................................................... 398</text>
