@@ -19,20 +19,22 @@ def generate_svg(mode="dark"):
     if mode == "dark":
         colors = {
             'bg': '#0d1117',
-            'art_solid': '#c9d1d9',   # bright white-gray for #
-            'art_mid': '#6e7681',      # medium gray for + -
-            'art_dim': '#30363d',      # subtle gray for .
-            'title': '#58a6ff',        # bright blue
+            'art_solid': '#c8ff00',    # lime hyper green for #
+            'art_mid': '#5a7a00',      # muted green for + -
+            'art_dim': '#1a2600',      # dark green for .
+            'title': '#c8ff00',        # lime green
             'tagline': '#8b949e',      # muted gray
+            'tagline2': '#6e7681',     # dimmer gray
         }
     else:
         colors = {
             'bg': '#ffffff',
-            'art_solid': '#24292f',    # near-black for #
-            'art_mid': '#57606a',      # medium gray for + -
-            'art_dim': '#d0d7de',      # light gray for .
-            'title': '#0969da',        # blue
-            'tagline': '#57606a',      # medium gray
+            'art_solid': '#3300ff',    # deep electric blue for #
+            'art_mid': '#8877cc',      # muted blue for + -
+            'art_dim': '#e0dff0',      # faint blue-gray for .
+            'title': '#3300ff',        # deep electric blue
+            'tagline': '#555555',      # medium gray
+            'tagline2': '#888888',     # lighter gray
         }
 
     c = colors
@@ -98,9 +100,10 @@ def generate_svg(mode="dark"):
         lines.append(("art", art))
     lines.append(("blank", ""))
     lines.append(("blank", ""))
-    lines.append(("title", "C o d e s W h a t ?"))
+    lines.append(("title", "CodesWhat?"))
     lines.append(("blank", ""))
-    lines.append(("tagline", "building things that make you go 'huh, neat'"))
+    lines.append(("tagline", "if you'd like to build better worlds together"))
+    lines.append(("tagline2", "...we mean software... reach out"))
 
     # Calculate height
     total_height = y_start
@@ -182,11 +185,15 @@ text {{
             y += art_line_height
 
         elif typ == "title":
-            svg += f'<text x="{width // 2}" y="{y}" text-anchor="middle" fill="{c["title"]}" font-size="20px" font-weight="bold" letter-spacing="0.15em">{escape_xml(content)}</text>\n'
+            svg += f'<text x="{width // 2}" y="{y}" text-anchor="middle" fill="{c["title"]}" font-size="22px" font-weight="600" font-family="-apple-system, BlinkMacSystemFont, \'Segoe UI\', Helvetica, Arial, sans-serif">{escape_xml(content)}</text>\n'
             y += text_line_height
 
         elif typ == "tagline":
-            svg += f'<text x="{width // 2}" y="{y}" text-anchor="middle" fill="{c["tagline"]}" font-size="13px">{escape_xml(content)}</text>\n'
+            svg += f'<text x="{width // 2}" y="{y}" text-anchor="middle" fill="{c["tagline"]}" font-size="13px" font-family="-apple-system, BlinkMacSystemFont, \'Segoe UI\', Helvetica, Arial, sans-serif">{escape_xml(content)}</text>\n'
+            y += text_line_height
+
+        elif typ == "tagline2":
+            svg += f'<text x="{width // 2}" y="{y}" text-anchor="middle" fill="{c["tagline2"]}" font-size="12px" font-family="-apple-system, BlinkMacSystemFont, \'Segoe UI\', Helvetica, Arial, sans-serif">{escape_xml(content)}</text>\n'
             y += text_line_height
 
         elif typ == "blank":
