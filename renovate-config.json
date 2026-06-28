@@ -1,0 +1,30 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices", ":semanticCommits"],
+  "schedule": ["before 6am on monday"],
+  "minimumReleaseAge": "14 days",
+  "internalChecksFilter": "strict",
+  "labels": ["dependencies"],
+  "prConcurrentLimit": 10,
+  "prHourlyLimit": 4,
+  "vulnerabilityAlerts": {
+    "minimumReleaseAge": "0 days",
+    "labels": ["dependencies", "security"]
+  },
+  "packageRules": [
+    {
+      "description": "Group all non-major updates into one PR per ecosystem",
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "non-major ({{manager}})",
+      "groupSlug": "non-major-{{manager}}"
+    },
+    {
+      "description": "CodesWhat policy: auto-merge only patch GitHub Actions updates",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["patch"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    }
+  ]
+}
