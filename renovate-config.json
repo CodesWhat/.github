@@ -1,21 +1,35 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:best-practices", ":semanticCommits"],
+  "extends": [
+    "config:best-practices",
+    ":semanticCommits"
+  ],
   "dependencyDashboard": true,
-  "schedule": ["before 6am on monday"],
+  "schedule": [
+    "before 6am on monday"
+  ],
+  "timezone": "America/New_York",
   "minimumReleaseAge": "14 days",
   "internalChecksFilter": "strict",
-  "labels": ["dependencies"],
+  "labels": [
+    "dependencies"
+  ],
   "prConcurrentLimit": 10,
   "prHourlyLimit": 4,
   "vulnerabilityAlerts": {
     "minimumReleaseAge": "0 days",
-    "labels": ["dependencies", "security"]
+    "labels": [
+      "dependencies",
+      "security"
+    ]
   },
   "packageRules": [
     {
       "description": "Group all non-major updates into one PR per ecosystem",
-      "matchUpdateTypes": ["minor", "patch"],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
       "groupName": "non-major ({{manager}})",
       "groupSlug": "non-major-{{manager}}"
     }
