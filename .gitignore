@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 *.pyo
 .DS_Store
+
+# Local planning/scratch workspace — not for commit
+.planning/
