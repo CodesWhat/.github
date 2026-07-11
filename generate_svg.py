@@ -16,25 +16,25 @@ def escape_xml(s):
 def generate_svg(mode="dark"):
     """Generate SVG content for the given color mode."""
 
+    # Both modes sit on the same black bg; day (light scheme) gets the lime
+    # green treatment, night (dark scheme) gets the electric blue invert
     if mode == "dark":
         colors = {
             'bg': '#0d1117',
-            'art_solid': '#c8ff00',    # lime hyper green for solid blocks
-            'art_mid': '#5a7a00',      # muted green for shade/edge chars
-            'art_dim': '#1a2600',      # dark green for ╬ fill
-            'title': '#c8ff00',        # lime green
+            'art_solid': '#3300ff',    # deep electric blue for solid blocks
+            'art_mid': '#2211aa',      # muted blue for shade/edge chars
+            'art_dim': '#100a3a',      # near-black blue for fill
             'tagline': '#8b949e',      # muted gray
             'tagline2': '#6e7681',     # dimmer gray
         }
     else:
         colors = {
-            'bg': '#ffffff',
-            'art_solid': '#3300ff',    # deep electric blue for solid blocks
-            'art_mid': '#8877cc',      # muted blue for shade/edge chars
-            'art_dim': '#e0dff0',      # faint blue-gray for ╬ fill
-            'title': '#3300ff',        # deep electric blue
-            'tagline': '#555555',      # medium gray
-            'tagline2': '#888888',     # lighter gray
+            'bg': '#0d1117',
+            'art_solid': '#c8ff00',    # lime hyper green for solid blocks
+            'art_mid': '#5a7a00',      # muted green for shade/edge chars
+            'art_dim': '#1a2600',      # dark green for fill
+            'tagline': '#8b949e',      # muted gray
+            'tagline2': '#6e7681',     # dimmer gray
         }
 
     c = colors
@@ -45,38 +45,58 @@ def generate_svg(mode="dark"):
     y_start = 16
 
     logo_art = [
-        "                             ╓▌██████████████████▌▄",
-        "                        ╓██████████████████████████████▄",
-        "                     ▓██████████╬╬▒╬╬╬╬╬╬╬╬╬╬╬╠▀██████████▌",
-        "                  ▄██████▀▌╠╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬▒▀▀██████▌",
-        "                ███████╠╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╠███████",
-        "              ██████╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬▀█████",
-        "            ╥█████╠╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬▄████████▌╬╬╬╬╬╬╠█████▌",
-        "           █████▌╬╬╬╬╬╬▒███████████▒╬╬╬╬╬╬╬╠████████████▌╬╬╬╬╬╬╠█████",
-        "          █████▒╬╬╬╬╬╬██████████████▌╬╬╬╬╬╬█████╬╠╠╣█████╬╬╬╬╬╬╬╬█████",
-        "         █████╬╬╬╬╬╬╬█████▀╬╬╬╬▒█▀╬╬╬╬╬╬╬╬╬████╬╬╬╬╬█████╬╬╬╬╬╬╬╬╬█████",
-        "        █████╬╬╬╬╬╬╬╟████▌╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╠██████╠╬╬╬╬╬╬╬╬╬╬╫████",
-        "        ████▀╬╬╬╬╬╬╬█████▄╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬██████╪╬╬╬╬╬╬╬╬╬╬╬╬╬████▌",
-        "       ████▌╬╬╬╬╬╬╬╬▒█████▒╬╬╬╬╬╬█╬╬╬╬╬╬╬╬╬╬╬╬╬╣████╪╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬█████",
-        "       ████▌╬╬╬╬╬╬╬╬╬╬██████████████▌╬╬╬╬╬╬╬╬╬╬▒▓▓▓▓╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬████",
-        "       ████╬╬╬╬╬╬╬╬╬╬╬╬████████████▌╬╬╬╬╬╬╬╬╬╬╬╣████╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬████▄",
-        "       ████╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╠╣███▀╠╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬████╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬████▄",
-        "       ████▌╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬████",
-        "       ╫███▌╬╬╬╬╬╬╬╬╬╬▒█████╬╬╬╬╬╬╬╬╬█████▌╬╬╬╬╬╬╬╬Å█████╬╬╬╬╬╬╬╬╬╬╬╟████",
-        "       ╙████▒╬╬╬╬╬╬╬╬╬╬╬█████╬╬╬╬╬╬╬███████▌╬╬╬╬╬╬╬█████╬╬╬╬╬╬╬╬╬╬╬╬████▌",
-        "        █████╬╬╬╬╬╬╬╬╬╬╬▀████▌╬╬╬╬╬█████████▒╬╬╬╬╬█████▒╬╬╬╬╬╬╬╬╬╬╬█████",
-        "         █████╬╬╬╬╬╬╬╬╬╬╬█████▌╬╬╬█████▀█████╬╬╬╬█████▀╬╬╬╬╬╬╬╬╬╬╬╟████b",
-        "         └█████╬╬╬╬╬╬╬╬╬╬╬█████▒╬╟████▀╬▒█████╬╬█████▀╬╬╬╬╬╬╬╬╬╬╬▓████▀",
-        "           █████▄╬╬╬╬╬╬╬╬╬▒█████╠████▌╬╬╬╠█████╟█████╬╬╬╬╬╬╬╬╬╬╬█████▀",
-        "            ██████╬╬╬╬╬╬╬╬╬╠████████▌╬╬╬╬╬╠████████▌╬╬╬╬╬╬╬╬╬╬▓█████",
-        "             ╙██████╬╬╬╬╬╬╬╬╬███████╬╬╬╬╬╬╬╠███████╬╬╬╬╬╬╬╬╬▓█████▀",
-        "               ▀██████▌╬╬╬╬╬╬╬█████╬╬╬╬╬╬╬╬╬╠█████▒╬╬╬╬╬╬▄██████▀",
-        "                 ╩▀██████▓╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╠███████▀",
-        "                    ██████████▌╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╠▓████████▌└",
-        "                       ╩███████████████████████████████▀▀",
-        "                           ╙▀█▀███████████████████▀▀▀",
-        "                                  └╙╙▀▀▀▀▀▀▀╙┴",
+        "                             ▒▌██████████████████▌▄",
+        "                        ▒██████████████████████████████▄",
+        "                     ▓██████████░░▒░░░░░░░░░░░░▀██████████▌",
+        "                  ▄██████▀▌░░░░░░░░░░░░░░░░░░░░░░░░░▒▀▀██████▌",
+        "                ███████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░███████",
+        "              ██████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▀█████",
+        "            ▒█████░░░░░░░░░░░░░░░░░░░░░░░░░░░▄████████▌░░░░░░░█████▌",
+        "           █████▌░░░░░░▒███████████▒░░░░░░░░████████████▌░░░░░░░█████",
+        "          █████▒░░░░░░██████████████▌░░░░░░█████░░░░█████░░░░░░░░█████",
+        "         █████░░░░░░░█████▀░░░░▒█▀░░░░░░░░░████░░░░░█████░░░░░░░░░█████",
+        "        █████░░░░░░░░████▌░░░░░░░░░░░░░░░░░░░░░░░██████░░░░░░░░░░░░████",
+        "        ████▀░░░░░░░█████▄░░░░░░░░░░░░░░░░░░░░░░██████░░░░░░░░░░░░░░████▌",
+        "       ████▌░░░░░░░░▒█████▒░░░░░░█░░░░░░░░░░░░░░████░░░░░░░░░░░░░░░░█████",
+        "       ████▌░░░░░░░░░░██████████████▌░░░░░░░░░░▒▓▓▓▓░░░░░░░░░░░░░░░░░████",
+        "       ████░░░░░░░░░░░░████████████▌░░░░░░░░░░░░████░░░░░░░░░░░░░░░░░████▄",
+        "       ████░░░░░░░░░░░░░░░░░███▀░░░░░░░░░░░░░░░░████░░░░░░░░░░░░░░░░░████▄",
+        "       ████▌░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░████",
+        "       ░███▌░░░░░░░░░░▒█████░░░░░░░░░█████▌░░░░░░░░░█████░░░░░░░░░░░░████",
+        "       ▒████▒░░░░░░░░░░░█████░░░░░░░███████▌░░░░░░░█████░░░░░░░░░░░░████▌",
+        "        █████░░░░░░░░░░░▀████▌░░░░░█████████▒░░░░░█████▒░░░░░░░░░░░█████",
+        "         █████░░░░░░░░░░░█████▌░░░█████▀█████░░░░█████▀░░░░░░░░░░░░████▌",
+        "         ▒█████░░░░░░░░░░░█████▒░░████▀░▒█████░░█████▀░░░░░░░░░░░▓████▀",
+        "           █████▄░░░░░░░░░▒█████░████▌░░░░█████░█████░░░░░░░░░░░█████▀",
+        "            ██████░░░░░░░░░░████████▌░░░░░░████████▌░░░░░░░░░░▓█████",
+        "             ▒██████░░░░░░░░░███████░░░░░░░░███████░░░░░░░░░▓█████▀",
+        "               ▀██████▌░░░░░░░█████░░░░░░░░░░█████▒░░░░░░▄██████▀",
+        "                 ▒▀██████▓░░░░░░░░░░░░░░░░░░░░░░░░░░░░░███████▀",
+        "                    ██████████▌░░░░░░░░░░░░░░░░░░░▓████████▌▒",
+        "                       ▒███████████████████████████████▀▀",
+        "                           ▒▀█▀███████████████████▀▀▀",
+        "                                  ▒▒▒▀▀▀▀▀▀▀▒▒",
     ]
+
+    wordmark_art = [
+        "▄████▄   ▒█████  ▓█████▄ ▓█████   ██████  █     █░ ██░ ██  ▄▄▄     ▄▄▄█████▓",
+        "▒██▀ ▀█  ▒██▒  ██▒▒██▀ ██▌▓█   ▀ ▒██    ▒ ▓█░ █ ░█░▓██░ ██▒▒████▄   ▓  ██▒ ▓▒",
+        "▒▓█    ▄ ▒██░  ██▒░██   █▌▒███   ░ ▓██▄   ▒█░ █ ░█ ▒██▀▀██░▒██  ▀█▄ ▒ ▓██░ ▒░",
+        "▒▓▓▄ ▄██▒▒██   ██░░▓█▄   ▌▒▓█  ▄   ▒   ██▒░█░ █ ░█ ░▓█ ░██ ░██▄▄▄▄██░ ▓██▓ ░",
+        "▒ ▓███▀ ░░ ████▓▒░░▒████▓ ░▒████▒▒██████▒▒░░██▒██▓ ░▓█▒░██▓ ▓█   ▓██▒ ▒██▒ ░",
+        "░ ░▒ ▒  ░░ ▒░▒░▒░  ▒▒▓  ▒ ░░ ▒░ ░▒ ▒▓▒ ▒ ░░ ▓░▒ ▒   ▒ ░░▒░▒ ▒▒   ▓▒█░ ▒ ░░",
+        "  ░  ▒     ░ ▒ ▒░  ░ ▒  ▒  ░ ░  ░░ ░▒  ░ ░  ▒ ░ ░   ▒ ░▒░ ░  ▒   ▒▒ ░   ░",
+        "░        ░ ░ ░ ▒   ░ ░  ░    ░   ░  ░  ░    ░   ░   ░  ░░ ░  ░   ▒    ░",
+        "░ ░          ░ ░     ░       ░  ░      ░      ░     ░  ░  ░      ░  ░",
+        "░                  ░",
+    ]
+
+    # Wordmark auto-scales to fit the canvas, capped at the logo font size
+    wordmark_max_len = max(len(l.rstrip()) for l in wordmark_art)
+    wordmark_font_size = round(min(font_size, (width - 40) / (0.6 * wordmark_max_len)), 1)
+    wordmark_char_width = wordmark_font_size * 0.6
+    wordmark_line_height = round(wordmark_font_size * 1.2)
+    wordmark_start_x = (width - wordmark_max_len * wordmark_char_width) / 2
 
     # Build SVG with per-character coloring for depth
     lines = []
@@ -84,7 +104,8 @@ def generate_svg(mode="dark"):
         lines.append(("art", art))
     lines.append(("blank", ""))
     lines.append(("blank", ""))
-    lines.append(("title", "CodesWhat?"))
+    for art in wordmark_art:
+        lines.append(("wordmark", art))
     lines.append(("blank", ""))
     lines.append(("tagline", "if you'd like to build better worlds together"))
     lines.append(("tagline2", "...we mean software... reach out"))
@@ -94,6 +115,8 @@ def generate_svg(mode="dark"):
     for typ, _ in lines:
         if typ == "art":
             total_height += art_line_height
+        elif typ == "wordmark":
+            total_height += wordmark_line_height
         elif typ == "blank":
             total_height += text_line_height // 2
         else:
@@ -126,7 +149,7 @@ text {{
     art_start_x = (width - art_max_len * char_width) / 2
 
     solid_chars = set('█▓▌▐▄▀')
-    dim_chars = set('╬╠╣╟╫╪Å')
+    dim_chars = set('░')
 
     def art_color(ch):
         if ch == ' ':
@@ -138,7 +161,12 @@ text {{
         return c['art_mid']
 
     for typ, content in lines:
-        if typ == "art" and content.strip():
+        if typ in ("art", "wordmark") and content.strip():
+            if typ == "art":
+                fs, cw, lh, sx = font_size, char_width, art_line_height, art_start_x
+            else:
+                fs, cw, lh, sx = wordmark_font_size, wordmark_char_width, wordmark_line_height, wordmark_start_x
+
             # Render art with per-character color spans
             # Build runs of same-colored characters
             runs = []
@@ -153,19 +181,18 @@ text {{
                 while i < len(content) and art_color(content[i]) == color:
                     i += 1
 
-                x = art_start_x + start * char_width
+                x = sx + start * cw
                 text = escape_xml(content[start:i])
-                runs.append(f'<text x="{x:.1f}" y="{y}" fill="{color}" font-size="{font_size}px">{text}</text>')
+                runs.append(f'<text x="{x:.1f}" y="{y}" fill="{color}" font-size="{fs}px">{text}</text>')
 
             svg += '\n'.join(runs) + '\n'
-            y += art_line_height
+            y += lh
 
         elif typ == "art":
             y += art_line_height
 
-        elif typ == "title":
-            svg += f'<text x="{width // 2}" y="{y}" text-anchor="middle" fill="{c["title"]}" font-size="22px" font-weight="600" font-family="-apple-system, BlinkMacSystemFont, \'Segoe UI\', Helvetica, Arial, sans-serif">{escape_xml(content)}</text>\n'
-            y += text_line_height
+        elif typ == "wordmark":
+            y += wordmark_line_height
 
         elif typ == "tagline":
             svg += f'<text x="{width // 2}" y="{y}" text-anchor="middle" fill="{c["tagline"]}" font-size="13px" font-family="-apple-system, BlinkMacSystemFont, \'Segoe UI\', Helvetica, Arial, sans-serif">{escape_xml(content)}</text>\n'
