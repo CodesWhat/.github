@@ -11,6 +11,7 @@
   "timezone": "America/New_York",
   "minimumReleaseAge": "14 days",
   "internalChecksFilter": "strict",
+  "skipInstalls": false,
   "labels": [
     "dependencies"
   ],
