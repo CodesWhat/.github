@@ -55,9 +55,10 @@ repositories. Language-specific tests do not.
 ### Security, license, and repository metadata
 
 - [ ] Add a root `SECURITY.md` that names supported versions, defines the
-  security scope, tells reporters not to open a public issue, links to the
-  repository's private vulnerability reporting page, lists
-  `security@codeswhat.com`, and gives response expectations.
+  security scope, tells reporters not to open a public issue, lists
+  `security@codeswhat.com`, and gives response expectations. Link to the
+  repository's private vulnerability reporting page when GitHub supports it;
+  otherwise document email or another private reporting channel.
 - [ ] Enable private vulnerability reporting when GitHub offers it for the
   repository. Enable secret scanning and push protection when the visibility
   and current GitHub plan support them.
@@ -68,7 +69,7 @@ repositories. Language-specific tests do not.
 - [ ] Set a concise GitHub description and the useful, specific topics someone
   would search for. Include the primary language and product category. Add the
   canonical homepage or documentation URL when one exists.
-- [ ] Remove placeholder README text and make the root `README.md` state what
+- [ ] Add or update a root `README.md`, remove placeholder text, and state what
   the repository is, its current maturity, and how to run or consume it.
 
 ### Dependency updates and automated review
@@ -156,10 +157,12 @@ timeouts and concurrency, disable persisted checkout credentials unless a job
 must push, and use `step-security/harden-runner` with the smallest practical
 egress allowlist.
 
-Every repository with executable code needs format or lint, tests with an
-enforced coverage policy, a production build, dependency review on PRs,
-workflow validation with actionlint and zizmor, and CodeQL when its language is
-supported. Add the matching language or artifact checks below:
+Every repository with executable code needs the applicable format or lint and
+test gates. Require coverage when the language and test tooling measure it, a
+production build when the repository ships a buildable artifact, dependency
+review when it has dependencies, workflow validation when it has GitHub Actions,
+and CodeQL when its language is supported. Add the matching language or artifact
+checks below:
 
 - **Go:** `gofmt`, `go vet`, `golangci-lint`, `go test -race`, coverage,
   `govulncheck`, and a build using the version in `go.mod`.
@@ -218,11 +221,12 @@ Add these only when the behavior exists:
 
 - [ ] Parse every JSON and YAML configuration. Record and run the repository's
   exact validation commands in `AGENTS.md`.
-- [ ] Run `npx --yes markdownlint-cli2 '**/*.md'` when Markdown is present and
-  `python3 -m compileall -q .` when Python is present, or the stricter exact
-  commands already declared by the repository.
-- [ ] Run `actionlint .github/workflows/*.yml` and `zizmor .github/workflows/`
-  when GitHub Actions workflows are present.
+- [ ] Run `npx --yes markdownlint-cli2@0.23.2 '**/*.md'` when Markdown is
+  present and `python3 -m compileall -q .` when Python is present, or the
+  stricter version-pinned commands already declared by the repository.
+- [ ] Run `find .github/workflows -maxdepth 1 -type f \( -name '*.yml' -o -name
+  '*.yaml' \) -exec actionlint {} +` and `zizmor .github/workflows/` when GitHub
+  Actions workflows are present.
 - [ ] Install dependencies from a clean checkout, run the full local hook
   pipeline, and run the production build.
 - [ ] Open a feature-to-active-branch PR, then an active-branch-to-`main` PR.
