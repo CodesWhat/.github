@@ -6,6 +6,10 @@ that apply. A repository is not compliant because it copied another project's
 files. Its hooks, workflows, and required checks must exercise its own build and
 release paths.
 
+This document defines the target state for a repository being onboarded. Its
+presence in the standards repository does not certify that an existing
+repository has already passed the checklist.
+
 ## 1. Classify the repository
 
 - [ ] Record its purpose, owner, visibility, and lifecycle: public product,
@@ -212,13 +216,19 @@ Add these only when the behavior exists:
 
 ## 6. Prove onboarding is complete
 
-- [ ] Parse every JSON and YAML configuration and run actionlint and zizmor on
-  all workflows.
+- [ ] Parse every JSON and YAML configuration. Record and run the repository's
+  exact validation commands in `AGENTS.md`.
+- [ ] Run `npx --yes markdownlint-cli2 '**/*.md'` when Markdown is present and
+  `python3 -m compileall -q .` when Python is present, or the stricter exact
+  commands already declared by the repository.
+- [ ] Run `actionlint .github/workflows/*.yml` and `zizmor .github/workflows/`
+  when GitHub Actions workflows are present.
 - [ ] Install dependencies from a clean checkout, run the full local hook
   pipeline, and run the production build.
-- [ ] Open a feature-to-development PR, then a development-to-`main` PR. Wait
-  for all CI and an explicit CodeRabbit review on both, address every actionable
-  finding, and obtain the required non-author and code-owner approvals.
+- [ ] Open a feature-to-active-branch PR, then an active-branch-to-`main` PR.
+  Use the branch selected in section 1. Wait for all CI and an explicit
+  CodeRabbit review on both, address every actionable finding, and obtain the
+  required non-author and code-owner approvals.
 - [ ] Confirm the PR cannot merge while a required job is pending or failing.
   Never weaken branch protection to perform this test or to clear
   `REVIEW_REQUIRED`.
