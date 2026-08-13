@@ -34,7 +34,9 @@ jobs:
           node-version: 24
 
       - name: Validate community health contract
-        run: python3 .github/tests/community_health_contract_test.py
+        run: |
+          python3 .github/tests/community_health_contract_test.py
+          python3 .github/tests/greptile_summon_contract_test.py
 
       - name: Compile Python
         run: python3 -m compileall -q .

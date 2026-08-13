@@ -1,0 +1,100 @@
+name: Summon Greptile
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: Pull request number in the caller repository
+        required: true
+        type: number
+      head_sha:
+        description: Exact pull request head to review
+        required: true
+        type: string
+      focus:
+        description: Short review focus based on the risk in the diff
+        required: false
+        default: Review for correctness, security issues, and cross-file regressions.
+        type: string
+
+permissions: {}
+
+jobs:
+  summon:
+    name: Summon Greptile
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write # Create the intentional Greptile summon comment.
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+
+      - name: Comment once on the exact pull request head
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          REVIEW_FOCUS: ${{ inputs.focus }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const prNumber = Number.parseInt(process.env.PR_NUMBER, 10);
+            const headSha = process.env.HEAD_SHA;
+            const focus = process.env.REVIEW_FOCUS.trim();
+            const { owner, repo } = context.repo;
+
+            if (!Number.isSafeInteger(prNumber) || prNumber < 1) {
+              core.setFailed(`Invalid pull request number: ${process.env.PR_NUMBER}`);
+              return;
+            }
+            if (!/^[0-9a-f]{40}$/.test(headSha)) {
+              core.setFailed(`Invalid full head SHA: ${headSha}`);
+              return;
+            }
+            if (focus.length === 0 || focus.length > 500) {
+              core.setFailed("Review focus must contain 1 to 500 characters");
+              return;
+            }
+
+            const { data: pull } = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: prNumber,
+            });
+            if (pull.state !== "open") {
+              core.setFailed(`Pull request #${prNumber} is ${pull.state}`);
+              return;
+            }
+            if (pull.head.sha !== headSha) {
+              core.setFailed(
+                `Pull request head changed: expected ${headSha}, got ${pull.head.sha}`,
+              );
+              return;
+            }
+
+            const marker = `<!-- greptile-summon:${headSha} -->`;
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              { owner, repo, issue_number: prNumber, per_page: 100 },
+            );
+            const alreadySummoned = comments.some(
+              (comment) => comment.user?.login === "github-actions[bot]"
+                && comment.body?.includes(marker),
+            );
+            if (alreadySummoned) {
+              core.notice(`Greptile already summoned for ${headSha}`);
+              return;
+            }
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: prNumber,
+              body: `@greptileai Review exact head \`${headSha}\`. ${focus}\n\n${marker}`,
+            });
