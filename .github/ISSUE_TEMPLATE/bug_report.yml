@@ -1,0 +1,77 @@
+name: Bug report
+description: Report a reproducible problem
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Do not include secrets or private data, and redact logs and configuration. Email security@codeswhat.com instead of filing a public issue for a suspected vulnerability.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Provide the release version, image digest, or commit SHA.
+      placeholder: "e.g. 1.2.3 or abc1234"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and its impact.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: Describe what should have happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest complete reproduction you can.
+      placeholder: |
+        1. Configure ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include relevant OS, architecture, runtime, and install method.
+      placeholder: |
+        - OS and architecture:
+        - Runtime or toolchain:
+        - Install method:
+    validations:
+      required: true
+
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Redacted configuration
+      description: Include only configuration needed to reproduce the problem.
+      render: yaml
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs
+      description: Remove credentials, private paths, hostnames, and user data.
+      render: text
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Add screenshots, links, or other useful context.
