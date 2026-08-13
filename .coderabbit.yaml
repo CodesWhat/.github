@@ -7,4 +7,4 @@ reviews:
     enabled: true
     drafts: false
     base_branches:
-      - "dev/*"
+      - "^dev/.*$"
