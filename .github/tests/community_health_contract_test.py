@@ -162,13 +162,20 @@ class CommunityHealthContractTest(unittest.TestCase):
             "markdownlint-profile.yaml",
             "actionlint",
             "zizmorcore/zizmor-action@",
-            "version: v1.29.0",
             "config: .github/zizmor.yml",
             "github/codeql-action/init@",
             "languages: python",
             "github/codeql-action/analyze@",
         ):
             self.assertIn(expected, workflow)
+
+    def test_zizmor_action_owns_its_supported_cli_version(self):
+        workflow = self.read_text(".github/workflows/standards-validation.yml")
+        zizmor_step = workflow.split(
+            "      - name: Validate workflows with zizmor\n", 1
+        )[1].split("\n  codeql:\n", 1)[0]
+
+        self.assertNotIn("\n          version:", zizmor_step)
 
     def test_linter_suppressions_are_limited_to_known_findings(self):
         markdown_config = self.read_text(".github/markdownlint-profile.yaml")
