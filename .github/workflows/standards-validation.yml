@@ -1,0 +1,99 @@
+name: Standards Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+      - dev/repository-standards
+
+permissions: {}
+
+jobs:
+  validation:
+    name: Standards Validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Validate community health contract
+        run: python3 .github/tests/community_health_contract_test.py
+
+      - name: Compile Python
+        run: python3 -m compileall -q .
+
+      - name: Parse YAML and JSON
+        run: |
+          set -euo pipefail
+          ruby -e 'require "yaml"; Dir.glob("**/*.{yml,yaml}", File::FNM_DOTMATCH).sort.each { |path| YAML.parse_file(path) }'
+          python3 -c 'import json; from pathlib import Path; [json.load(path.open()) for path in Path(".").rglob("*.json")]'
+
+      - name: Lint Markdown
+        run: |
+          set -euo pipefail
+          npx --yes markdownlint-cli2@0.23.2 "**/*.md" "#profile/README.md"
+          npx --yes markdownlint-cli2@0.23.2 "profile/README.md" --config .github/markdownlint-profile.yaml
+
+      - name: Validate workflows with actionlint
+        run: |
+          set -euo pipefail
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/914e7df21a07ef503a81201c76d2b11c789d3fca/scripts/download-actionlint.bash) 1.7.12 "$RUNNER_TEMP"
+          "$RUNNER_TEMP/actionlint" -color
+
+      - name: Validate workflows with zizmor
+        uses: zizmorcore/zizmor-action@6fc4b006235f201fdab3722e17240ab420d580e5 # v0.6.1
+        with:
+          advanced-security: false
+          annotations: true
+          collect: workflows
+          config: .github/zizmor.yml
+          inputs: .github/workflows/
+          online-audits: false
+          version: v1.29.0
+
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        with:
+          languages: python
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        with:
+          category: /language:python

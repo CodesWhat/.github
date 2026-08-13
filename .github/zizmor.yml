@@ -1,0 +1,8 @@
+rules:
+  artipacked:
+    ignore:
+      - update-stats.yml:19:9
+  unpinned-uses:
+    ignore:
+      - update-stats.yml:20:15
+      - update-stats.yml:23:15
