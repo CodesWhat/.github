@@ -24,6 +24,9 @@ jobs:
     name: Summon Greptile
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    concurrency:
+      group: greptile-summon-${{ github.repository }}-${{ inputs.pr_number }}-${{ inputs.head_sha }}
+      cancel-in-progress: false
     permissions:
       pull-requests: write # Create the intentional Greptile summon comment.
 
@@ -44,13 +47,14 @@ jobs:
         with:
           github-token: ${{ github.token }}
           script: |
-            const prNumber = Number.parseInt(process.env.PR_NUMBER, 10);
+            const prNumberText = process.env.PR_NUMBER;
+            const prNumber = Number(prNumberText);
             const headSha = process.env.HEAD_SHA;
             const focus = process.env.REVIEW_FOCUS.trim();
             const { owner, repo } = context.repo;
 
-            if (!Number.isSafeInteger(prNumber) || prNumber < 1) {
-              core.setFailed(`Invalid pull request number: ${process.env.PR_NUMBER}`);
+            if (!/^[1-9]\d*$/.test(prNumberText) || !Number.isSafeInteger(prNumber)) {
+              core.setFailed(`Invalid pull request number: ${prNumberText}`);
               return;
             }
             if (!/^[0-9a-f]{40}$/.test(headSha)) {
@@ -89,6 +93,22 @@ jobs:
             );
             if (alreadySummoned) {
               core.notice(`Greptile already summoned for ${headSha}`);
+              return;
+            }
+
+            const { data: currentPull } = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: prNumber,
+            });
+            if (currentPull.state !== "open") {
+              core.setFailed(`Pull request #${prNumber} is ${currentPull.state}`);
+              return;
+            }
+            if (currentPull.head.sha !== headSha) {
+              core.setFailed(
+                `Pull request head changed: expected ${headSha}, got ${currentPull.head.sha}`,
+              );
               return;
             }
 

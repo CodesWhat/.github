@@ -43,10 +43,25 @@ class GreptileSummonContractTest(unittest.TestCase):
         ):
             self.assertIn(expected, workflow)
 
+        self.assertIn(
+            "greptile-summon-${{ github.repository }}-${{ inputs.pr_number }}-${{ inputs.head_sha }}",
+            workflow,
+        )
+        self.assertIn("      cancel-in-progress: false", workflow)
+        self.assertGreaterEqual(workflow.count("github.rest.pulls.get"), 2)
+        self.assertIn("currentPull.head.sha !== headSha", workflow)
         self.assertIn("HEAD_SHA: ${{ inputs.head_sha }}", workflow)
         self.assertIn("REVIEW_FOCUS: ${{ inputs.focus }}", workflow)
         self.assertNotIn("const headSha = '${{ inputs.head_sha }}'", workflow)
         self.assertNotIn("const focus = '${{ inputs.focus }}'", workflow)
+
+    def test_workflow_rejects_partial_pull_request_numbers(self):
+        workflow = self.read_workflow()
+
+        self.assertIn("const prNumberText = process.env.PR_NUMBER", workflow)
+        self.assertIn("const prNumber = Number(prNumberText)", workflow)
+        self.assertIn("!/^[1-9]\\d*$/.test(prNumberText)", workflow)
+        self.assertNotIn("Number.parseInt(process.env.PR_NUMBER", workflow)
 
     def test_workflow_pins_actions_and_is_run_by_standards_validation(self):
         workflow = self.read_workflow()
