@@ -22,6 +22,10 @@ class GreptileSummonContractTest(unittest.TestCase):
             "    runs-on: ubuntu-24.04",
             "    timeout-minutes: 5",
             "      pull-requests: write",
+            "uses: step-security/harden-runner@",
+            "egress-policy: block",
+            "api.github.com:443",
+            "github-token: ${{ github.token }}",
         ):
             self.assertIn(expected, workflow)
 
@@ -61,6 +65,9 @@ class GreptileSummonContractTest(unittest.TestCase):
         self.assertIn("const prNumberText = process.env.PR_NUMBER", workflow)
         self.assertIn("const prNumber = Number(prNumberText)", workflow)
         self.assertIn("!/^[1-9]\\d*$/.test(prNumberText)", workflow)
+        self.assertIn("PR_NUMBER: ${{ inputs.pr_number }}", workflow)
+        self.assertIn("if (!/^[0-9a-f]{40}$/.test(headSha))", workflow)
+        self.assertIn("if (focus.length === 0 || focus.length > 500)", workflow)
         self.assertNotIn("Number.parseInt(process.env.PR_NUMBER", workflow)
 
     def test_workflow_pins_actions_and_is_run_by_standards_validation(self):
