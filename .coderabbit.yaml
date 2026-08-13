@@ -1,0 +1,10 @@
+# Review feature PRs that follow the CodesWhat dev-branch flow. CodeRabbit
+# reviews the default branch without an explicit base-branch entry.
+language: en-US
+
+reviews:
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - "dev/*"
