@@ -19,7 +19,6 @@ class CommunityHealthContractTest(unittest.TestCase):
             ".github/ISSUE_TEMPLATE/config.yml",
             ".github/PULL_REQUEST_TEMPLATE.md",
             ".github/workflows/standards-validation.yml",
-            ".github/zizmor.yml",
         )
 
         missing = [path for path in required if not (ROOT / path).is_file()]
@@ -162,7 +161,6 @@ class CommunityHealthContractTest(unittest.TestCase):
             "markdownlint-profile.yaml",
             "actionlint",
             "zizmorcore/zizmor-action@",
-            "config: .github/zizmor.yml",
             "github/codeql-action/init@",
             "languages: python",
             "github/codeql-action/analyze@",
@@ -177,27 +175,31 @@ class CommunityHealthContractTest(unittest.TestCase):
 
         self.assertNotIn("\n          version:", zizmor_step)
 
-    def test_linter_suppressions_are_limited_to_known_findings(self):
+    def test_linter_configs_do_not_suppress_workflow_findings(self):
         markdown_config = self.read_text(".github/markdownlint-profile.yaml")
-        zizmor_config = self.read_text(".github/zizmor.yml")
 
         self.assertIn("MD033: false", markdown_config)
         self.assertIn("MD041: false", markdown_config)
         self.assertNotIn("ignores:", markdown_config)
         self.assertEqual(2, markdown_config.count(": false"))
+        self.assertFalse((ROOT / ".github/zizmor.yml").exists())
 
-        for expected in (
-            "update-stats.yml:19:9",
-            "update-stats.yml:20:15",
-            "update-stats.yml:23:15",
-        ):
-            self.assertIn(expected, zizmor_config)
-        self.assertEqual(3, zizmor_config.count("update-stats.yml:"))
+    def test_profile_workflow_pins_actions_and_pushes_without_persisted_credentials(self):
+        workflow = self.read_text(".github/workflows/update-stats.yml")
+        actions = re.findall(r"^\s+uses: ([^\s#]+)", workflow, re.MULTILINE)
 
-        update_stats = self.read_text(".github/workflows/update-stats.yml").splitlines()
-        self.assertEqual("      - name: Checkout", update_stats[18])
-        self.assertEqual("        uses: actions/checkout@v4", update_stats[19])
-        self.assertEqual("        uses: actions/setup-python@v5", update_stats[22])
+        self.assertEqual(2, len(actions))
+        for action in actions:
+            self.assertRegex(action, r"^[^@]+@[0-9a-f]{40}$")
+
+        checkout_step = workflow.split("      - name: Checkout\n", 1)[1].split(
+            "\n      - name:", 1
+        )[0]
+        push_step = workflow.split("      - name: Commit and push\n", 1)[1]
+
+        self.assertIn("persist-credentials: false", checkout_step)
+        self.assertIn("GH_TOKEN: ${{ github.token }}", push_step)
+        self.assertIn("gh auth setup-git", push_step)
 
     def read_text(self, relative_path):
         path = ROOT / relative_path

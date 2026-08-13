@@ -63,7 +63,6 @@ jobs:
           advanced-security: false
           annotations: true
           collect: workflows
-          config: .github/zizmor.yml
           inputs: .github/workflows/
           online-audits: false
 
