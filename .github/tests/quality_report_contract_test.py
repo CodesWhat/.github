@@ -163,13 +163,19 @@ class QualityReportContractTest(unittest.TestCase):
         self.assertEqual(0, self.validate_report(report).returncode)
 
     def test_utf8_target_load_does_not_depend_on_the_locale_encoding(self):
-        document = json.loads(
-            (
-                FIXTURES
-                / "complete"
-                / "quality-result-stats"
-                / "target-result.json"
-            ).read_text()
+        fixture = (
+            FIXTURES
+            / "complete"
+            / "quality-result-stats"
+            / "target-result.json"
+        )
+        original_read_text = Path.read_text
+        with mock.patch.object(
+            Path, "read_text", autospec=True, side_effect=original_read_text
+        ) as fixture_read:
+            document = json.loads(fixture.read_text(encoding="utf-8"))
+        self.assertEqual(
+            mock.call(fixture, encoding="utf-8"), fixture_read.call_args
         )
         document["target"]["name"] = "internal/docker/FuzzDécodage"
 
