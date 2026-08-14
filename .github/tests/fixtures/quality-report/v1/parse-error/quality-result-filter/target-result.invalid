@@ -1,0 +1,21 @@
+{
+  "schema_version": "quality-report/v1",
+  "kind": "target-result",
+  "track": "mutation",
+  "tool": "gremlins",
+  "target": {
+    "name": "./internal/filter",
+    "outcome": "passed",
+    "metrics": {
+      "killed": 31,
+      "timeout": 4,
+      "survived": 2,
+      "no_coverage": 3,
+      "invalid": 1,
+      "ignored": 0,
+      "tool_score_numerator": 31,
+      "tool_score_denominator": 33,
+      "tool_score_pct": 93.94,
+      "tool_score_definition": "killed / (killed + survived)"
+    }
+  }
