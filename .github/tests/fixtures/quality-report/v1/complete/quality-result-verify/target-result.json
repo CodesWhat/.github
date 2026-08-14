@@ -1,0 +1,16 @@
+{
+  "schema_version": "quality-report/v1",
+  "kind": "target-result",
+  "track": "fuzz",
+  "tool": "go-fuzz",
+  "target": {
+    "name": "internal/auth/FuzzVerifyRequest",
+    "outcome": "passed",
+    "metrics": {
+      "budget_seconds": 300,
+      "elapsed_seconds": 288.25,
+      "executions": 1250000,
+      "new_interesting_inputs": 3
+    }
+  }
+}

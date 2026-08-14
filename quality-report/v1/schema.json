@@ -1,0 +1,496 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeswhat.com/schemas/quality-report/v1/schema.json",
+  "title": "CodesWhat quality-report/v1",
+  "description": "Normalized target results and aggregate quality reports.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/targetResult"
+    },
+    {
+      "$ref": "#/$defs/report"
+    }
+  ],
+  "$defs": {
+    "version": {
+      "type": "string",
+      "const": "quality-report/v1"
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "passed",
+        "failed",
+        "crashed",
+        "flaked",
+        "cancelled",
+        "error"
+      ]
+    },
+    "reproduction": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "seed": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "corpus": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "mutationTargetMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "killed",
+        "timeout",
+        "survived",
+        "no_coverage",
+        "invalid",
+        "ignored",
+        "tool_score_numerator",
+        "tool_score_denominator",
+        "tool_score_pct",
+        "tool_score_definition"
+      ],
+      "properties": {
+        "killed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "survived": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "no_coverage": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "invalid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ignored": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tool_score_numerator": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tool_score_denominator": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tool_score_pct": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "tool_score_definition": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "fuzzTargetMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "budget_seconds",
+        "elapsed_seconds"
+      ],
+      "properties": {
+        "budget_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "elapsed_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "executions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "new_interesting_inputs": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "outcome",
+        "metrics"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^\\r\\n]+$"
+        },
+        "outcome": {
+          "$ref": "#/$defs/outcome"
+        },
+        "metrics": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/mutationTargetMetrics"
+            },
+            {
+              "$ref": "#/$defs/fuzzTargetMetrics"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "diagnostic": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reproduction": {
+          "$ref": "#/$defs/reproduction"
+        }
+      }
+    },
+    "targetResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "kind",
+        "track",
+        "tool",
+        "target"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/version"
+        },
+        "kind": {
+          "type": "string",
+          "const": "target-result"
+        },
+        "track": {
+          "type": "string",
+          "enum": [
+            "mutation",
+            "fuzz"
+          ]
+        },
+        "tool": {
+          "type": "string",
+          "enum": [
+            "stryker",
+            "gremlins",
+            "go-fuzz",
+            "fast-check"
+          ]
+        },
+        "target": {
+          "$ref": "#/$defs/target"
+        }
+      }
+    },
+    "mutationReportMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "killed",
+        "timeout",
+        "survived",
+        "no_coverage",
+        "invalid",
+        "ignored",
+        "detected",
+        "missed",
+        "canonical_score_pct",
+        "tool_score_numerator",
+        "tool_score_denominator",
+        "tool_score_pct",
+        "tool_score_definition"
+      ],
+      "properties": {
+        "killed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "survived": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "no_coverage": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "invalid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ignored": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "detected": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "missed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "canonical_score_pct": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "tool_score_numerator": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tool_score_denominator": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tool_score_pct": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "tool_score_definition": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "fuzzReportMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "declared_budget_seconds",
+        "elapsed_seconds",
+        "executions",
+        "new_interesting_inputs"
+      ],
+      "properties": {
+        "declared_budget_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "elapsed_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "executions": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "new_interesting_inputs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "attempt",
+        "event",
+        "url",
+        "started_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "event": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "started_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    },
+    "completeness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expected",
+        "reported",
+        "complete"
+      ],
+      "properties": {
+        "expected": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "reported": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "complete": {
+          "type": "boolean"
+        }
+      }
+    },
+    "report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "kind",
+        "repository",
+        "ref",
+        "sha",
+        "run",
+        "report_name",
+        "track",
+        "tool",
+        "policy",
+        "completeness",
+        "outcome",
+        "targets",
+        "metrics",
+        "errors"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/version"
+        },
+        "kind": {
+          "type": "string",
+          "const": "report"
+        },
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "run": {
+          "$ref": "#/$defs/run"
+        },
+        "report_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "track": {
+          "type": "string",
+          "enum": [
+            "mutation",
+            "fuzz"
+          ]
+        },
+        "tool": {
+          "type": "string",
+          "enum": [
+            "stryker",
+            "gremlins",
+            "go-fuzz",
+            "fast-check"
+          ]
+        },
+        "policy": {
+          "type": "string",
+          "enum": [
+            "advisory",
+            "signal"
+          ]
+        },
+        "completeness": {
+          "$ref": "#/$defs/completeness"
+        },
+        "outcome": {
+          "$ref": "#/$defs/outcome"
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/target"
+          }
+        },
+        "metrics": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/mutationReportMetrics"
+            },
+            {
+              "$ref": "#/$defs/fuzzReportMetrics"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "errors": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}
