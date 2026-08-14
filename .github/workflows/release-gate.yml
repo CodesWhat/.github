@@ -1,0 +1,172 @@
+name: Reusable Release Gate
+
+on:
+  workflow_call:
+    inputs:
+      target-sha:
+        description: Full commit SHA whose branch push runs must have succeeded
+        required: true
+        type: string
+      workflow-files-json:
+        description: Nonempty JSON array of workflow filenames to verify
+        required: true
+        type: string
+      max-attempts:
+        description: Maximum polls for each required workflow
+        required: false
+        type: number
+        default: 12
+      sleep-seconds:
+        description: Seconds between polls
+        required: false
+        type: number
+        default: 300
+
+permissions: {}
+
+jobs:
+  gate:
+    name: Release Gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    permissions:
+      actions: read
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: block
+          allowed-endpoints: api.github.com:443
+
+      - name: Verify required CI workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAX_ATTEMPTS: ${{ inputs.max-attempts }}
+          SLEEP_SECONDS: ${{ inputs.sleep-seconds }}
+          TARGET_SHA: ${{ inputs.target-sha }}
+          WORKFLOW_FILES_JSON: ${{ inputs.workflow-files-json }}
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_API_URL}" != "https://api.github.com" ]; then
+            echo "::error::release-gate supports api.github.com only so its blocked egress allowlist matches the API host."
+            exit 1
+          fi
+          if ! [[ "${TARGET_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::target-sha must be a full lowercase commit SHA."
+            exit 1
+          fi
+          if ! [[ "${MAX_ATTEMPTS}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::max-attempts must be a positive integer."
+            exit 1
+          fi
+          if ! [[ "${SLEEP_SECONDS}" =~ ^[0-9]+$ ]]; then
+            echo "::error::sleep-seconds must be a nonnegative integer."
+            exit 1
+          fi
+          if ! jq -e '
+            type == "array"
+            and length > 0
+            and all(.[];
+              type == "string"
+              and test("^[A-Za-z0-9][A-Za-z0-9._-]*[.]ya?ml$")
+            )
+          ' <<< "${WORKFLOW_FILES_JSON}" >/dev/null; then
+            echo "::error::workflow-files-json must be a nonempty JSON array of workflow filenames."
+            exit 1
+          fi
+
+          workflow_files=()
+          while IFS= read -r workflow_file; do
+            workflow_files+=("${workflow_file}")
+          done < <(jq -r '.[]' <<< "${WORKFLOW_FILES_JSON}")
+
+          workflow_ids=()
+          workflow_names=()
+          for workflow_file in "${workflow_files[@]}"; do
+            workflow_url="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_file}"
+            workflow_json="$(curl --proto '=https' --tlsv1.2 --retry 3 --fail --silent --show-error \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "${workflow_url}")"
+            workflow_id="$(echo "${workflow_json}" | jq -r '.id // empty')"
+            workflow_name="$(echo "${workflow_json}" | jq -r '.name // empty')"
+            workflow_path="$(echo "${workflow_json}" | jq -r '.path // empty')"
+            expected_path=".github/workflows/${workflow_file}"
+            if [ -z "${workflow_id}" ] || [ -z "${workflow_name}" ] || [ "${workflow_path}" != "${expected_path}" ]; then
+              echo "::error::Failed to resolve workflow metadata for ${workflow_file}."
+              exit 1
+            fi
+            workflow_ids+=("${workflow_id}")
+            workflow_names+=("${workflow_name}")
+          done
+
+          workflow_succeeded=()
+          for index in "${!workflow_ids[@]}"; do
+            workflow_succeeded["${index}"]=false
+          done
+
+          for attempt in $(seq 1 "${MAX_ATTEMPTS}"); do
+            waiting=false
+            for index in "${!workflow_ids[@]}"; do
+              if [ "${workflow_succeeded[${index}]}" = "true" ]; then
+                continue
+              fi
+
+              workflow_id="${workflow_ids[${index}]}"
+              workflow_name="${workflow_names[${index}]}"
+              # GitHub's `?head_sha=` and `?event=` query filters have been spuriously returning 0 results since 2026-04-27.
+              # Filter the latest 100 runs client-side instead.
+              runs_url="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}/runs?per_page=100"
+              runs_json="$(curl --proto '=https' --tlsv1.2 --retry 3 --fail --silent --show-error \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "${runs_url}")"
+              filtered="$(echo "${runs_json}" | jq --arg sha "${TARGET_SHA}" '{
+                workflow_runs: [.workflow_runs[]
+                  | select(
+                    .head_sha == $sha
+                    and .event == "push"
+                    and ((.head_branch // "") | length > 0)
+                  )]
+              }')"
+
+              success_count="$(echo "${filtered}" | jq '[.workflow_runs[] | select(.conclusion == "success")] | length')"
+              in_progress_count="$(echo "${filtered}" | jq '[.workflow_runs[] | select(.status != "completed")] | length')"
+              completed_count="$(echo "${filtered}" | jq '[.workflow_runs[] | select(.status == "completed")] | length')"
+
+              if [ "${success_count}" -gt 0 ]; then
+                echo "Found successful ${workflow_name} push run for ${TARGET_SHA}."
+                workflow_succeeded["${index}"]=true
+                continue
+              fi
+
+              if [ "${completed_count}" -gt 0 ] && [ "${in_progress_count}" -eq 0 ]; then
+                echo "::error::${workflow_name} push runs for ${TARGET_SHA} completed without success."
+                echo "${filtered}" | jq '.workflow_runs[] | {id, status, conclusion, head_branch, html_url}'
+                exit 1
+              fi
+
+              echo "Attempt ${attempt}/${MAX_ATTEMPTS}: waiting for ${workflow_name} push run for ${TARGET_SHA}."
+              waiting=true
+            done
+
+            if [ "${waiting}" != "true" ]; then
+              break
+            fi
+            if [ "${attempt}" -lt "${MAX_ATTEMPTS}" ]; then
+              sleep "${SLEEP_SECONDS}"
+            fi
+          done
+
+          timed_out=false
+          for index in "${!workflow_ids[@]}"; do
+            if [ "${workflow_succeeded[${index}]}" != "true" ]; then
+              echo "::error::Timed out waiting for successful ${workflow_names[${index}]} push run for ${TARGET_SHA}."
+              timed_out=true
+            fi
+          done
+          if [ "${timed_out}" = "true" ]; then
+            exit 1
+          fi
