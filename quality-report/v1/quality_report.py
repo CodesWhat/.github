@@ -84,7 +84,7 @@ def load_json_text(text, source):
 
 def load_json_file(path):
     try:
-        return load_json_text(path.read_text(), str(path))
+        return load_json_text(path.read_text(encoding="utf-8"), str(path))
     except (OSError, UnicodeDecodeError) as error:
         raise ContractError(
             "{0}: cannot read JSON: {1}".format(path, error)

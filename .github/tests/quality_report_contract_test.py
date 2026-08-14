@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -160,6 +161,35 @@ class QualityReportContractTest(unittest.TestCase):
         )
         self.assertIn("partial 1/2", summary)
         self.assertEqual(0, self.validate_report(report).returncode)
+
+    def test_utf8_target_load_does_not_depend_on_the_locale_encoding(self):
+        document = json.loads(
+            (
+                FIXTURES
+                / "complete"
+                / "quality-result-stats"
+                / "target-result.json"
+            ).read_text()
+        )
+        document["target"]["name"] = "internal/docker/FuzzDécodage"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "target-result.json"
+            path.write_bytes(json.dumps(document, ensure_ascii=False).encode("utf-8"))
+
+            def read_with_ascii_default(*, encoding=None, errors=None):
+                return path.read_bytes().decode(
+                    encoding or "ascii", errors or "strict"
+                )
+
+            with mock.patch.object(
+                Path, "read_text", side_effect=read_with_ascii_default
+            ):
+                loaded = QUALITY_REPORT["load_json_file"](path)
+
+        self.assertEqual(
+            "internal/docker/FuzzDécodage", loaded["target"]["name"]
+        )
 
     def test_canonical_score_counts_timeout_and_no_coverage(self):
         result, report, summary = self.aggregate(
