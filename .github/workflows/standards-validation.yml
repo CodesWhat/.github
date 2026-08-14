@@ -8,14 +8,18 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: standards-validation-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validation:
     name: Standards Validation
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
-      actions: read
-      contents: read
+      actions: read  # Read workflow metadata
+      contents: read  # Check out and validate repository files
 
     steps:
       - name: Harden runner
@@ -46,6 +50,9 @@ jobs:
           set -euo pipefail
           ruby -e 'require "yaml"; Dir.glob("**/*.{yml,yaml}", File::FNM_DOTMATCH).sort.each { |path| YAML.parse_file(path) }'
           python3 -c 'import json; from pathlib import Path; [json.load(path.open()) for path in Path(".").rglob("*.json")]'
+          python3 .github/tests/greptile_config_contract_test.py
+          python3 .github/tests/quality_report_contract_test.py
+          python3 .github/tests/reusable_ci_contract_test.py
 
       - name: Lint Markdown
         run: |
@@ -73,9 +80,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
-      actions: read
-      contents: read
-      security-events: write
+      actions: read  # Read workflow metadata
+      contents: read  # Check out Python sources
+      security-events: write  # Upload CodeQL analysis
 
     steps:
       - name: Harden runner

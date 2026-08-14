@@ -1,0 +1,157 @@
+name: Quality Report Aggregate
+
+on:
+  workflow_call:
+    inputs:
+      track:
+        description: Quality track, mutation or fuzz
+        required: true
+        type: string
+      tool:
+        description: Native tool that produced the normalized target results
+        required: true
+        type: string
+      policy:
+        description: Reporting policy, advisory or signal
+        required: true
+        type: string
+      expected_targets:
+        description: Non-empty JSON array of unique target names
+        required: true
+        type: string
+      result_artifact_pattern:
+        description: Artifact-name pattern containing target-result.json files
+        required: false
+        type: string
+        default: quality-result-*
+      report_name:
+        description: Human-readable report name
+        required: true
+        type: string
+      retention_days:
+        description: Aggregate artifact retention in days
+        required: false
+        type: number
+        default: 90
+      fail_on_incomplete:
+        description: Must remain true for CodesWhat telemetry
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      report_artifact_name:
+        description: Fixed aggregate artifact name
+        value: ${{ jobs.aggregate.outputs.report_artifact_name }}
+      completeness:
+        description: Whether every expected target reported valid JSON
+        value: ${{ jobs.aggregate.outputs.completeness }}
+      expected_targets:
+        description: Number of expected targets
+        value: ${{ jobs.aggregate.outputs.expected_targets }}
+      reported_targets:
+        description: Number of valid expected target results
+        value: ${{ jobs.aggregate.outputs.reported_targets }}
+      outcome:
+        description: Aggregate outcome
+        value: ${{ jobs.aggregate.outputs.outcome }}
+      canonical_score_pct:
+        description: Canonical mutation score, empty for fuzz or partial reports
+        value: ${{ jobs.aggregate.outputs.canonical_score_pct }}
+
+permissions: {}
+
+jobs:
+  aggregate:
+    name: Quality Report Aggregate
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      report_artifact_name: ${{ steps.aggregate.outputs.report_artifact_name }}
+      completeness: ${{ steps.aggregate.outputs.completeness }}
+      expected_targets: ${{ steps.aggregate.outputs.expected_targets }}
+      reported_targets: ${{ steps.aggregate.outputs.reported_targets }}
+      outcome: ${{ steps.aggregate.outputs.outcome }}
+      canonical_score_pct: ${{ steps.aggregate.outputs.canonical_score_pct }}
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Check out the called workflow contract
+        if: always()
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # actionlint 1.7.12 does not model these current reusable-workflow fields.
+          repository: ${{ fromJSON(toJSON(job)).workflow_repository }}
+          ref: ${{ fromJSON(toJSON(job)).workflow_sha }}
+          path: quality-report-contract
+          persist-credentials: false
+
+      - name: Read workflow run metadata
+        id: metadata
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          started_at="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" --jq .run_started_at)"
+          test -n "$started_at"
+          echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"
+
+      - name: Download normalized target results
+        id: download
+        if: always()
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: ${{ inputs.result_artifact_pattern }}
+          path: quality-result-artifacts
+
+      - name: Validate and aggregate target results
+        id: aggregate
+        if: always()
+        env:
+          EXPECTED_TARGETS: ${{ inputs.expected_targets }}
+          FAIL_ON_INCOMPLETE: ${{ inputs.fail_on_incomplete }}
+          POLICY: ${{ inputs.policy }}
+          REPORT_NAME: ${{ inputs.report_name }}
+          RUN_STARTED_AT: ${{ steps.metadata.outputs.started_at }}
+          TOOL: ${{ inputs.tool }}
+          TRACK: ${{ inputs.track }}
+        run: |
+          set -euo pipefail
+          python3 quality-report-contract/quality-report/v1/quality_report.py aggregate \
+            --input-dir quality-result-artifacts \
+            --output-dir quality-report-output \
+            --repository "$GITHUB_REPOSITORY" \
+            --ref "$GITHUB_REF" \
+            --sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --event "$GITHUB_EVENT_NAME" \
+            --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            --started-at "$RUN_STARTED_AT" \
+            --track "$TRACK" \
+            --tool "$TOOL" \
+            --policy "$POLICY" \
+            --expected-targets "$EXPECTED_TARGETS" \
+            --report-name "$REPORT_NAME" \
+            --fail-on-incomplete "$FAIL_ON_INCOMPLETE" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-step-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload normalized quality report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quality-report-${{ inputs.track }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            quality-report-output/report.json
+            quality-report-output/summary.md
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention_days }}

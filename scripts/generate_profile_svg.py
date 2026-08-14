@@ -211,16 +211,16 @@ text {{
 
 def main():
     """Generate both dark and light mode SVGs."""
-    script_dir = Path(__file__).parent
+    repo_root = Path(__file__).resolve().parents[1]
 
     dark_svg = generate_svg("dark")
-    dark_path = script_dir / "profile" / "dark_mode.svg"
+    dark_path = repo_root / "profile" / "dark_mode.svg"
     with open(dark_path, 'w', encoding='utf-8') as f:
         f.write(dark_svg)
     print(f"Generated: {dark_path}")
 
     light_svg = generate_svg("light")
-    light_path = script_dir / "profile" / "light_mode.svg"
+    light_path = repo_root / "profile" / "light_mode.svg"
     with open(light_path, 'w', encoding='utf-8') as f:
         f.write(light_svg)
     print(f"Generated: {light_path}")
