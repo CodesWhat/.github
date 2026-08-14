@@ -49,6 +49,10 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ "${GITHUB_API_URL}" != "https://api.github.com" ]; then
+            echo "::error::release-gate supports api.github.com only so its blocked egress allowlist matches the API host."
+            exit 1
+          fi
           if ! [[ "${TARGET_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error::target-sha must be a full lowercase commit SHA."
             exit 1
@@ -78,6 +82,8 @@ jobs:
             workflow_files+=("${workflow_file}")
           done < <(jq -r '.[]' <<< "${WORKFLOW_FILES_JSON}")
 
+          workflow_ids=()
+          workflow_names=()
           for workflow_file in "${workflow_files[@]}"; do
             workflow_url="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_file}"
             workflow_json="$(curl --proto '=https' --tlsv1.2 --retry 3 --fail --silent --show-error \
@@ -92,9 +98,26 @@ jobs:
               echo "::error::Failed to resolve workflow metadata for ${workflow_file}."
               exit 1
             fi
+            workflow_ids+=("${workflow_id}")
+            workflow_names+=("${workflow_name}")
+          done
 
-            found_success=false
-            for attempt in $(seq 1 "${MAX_ATTEMPTS}"); do
+          workflow_succeeded=()
+          for index in "${!workflow_ids[@]}"; do
+            workflow_succeeded["${index}"]=false
+          done
+
+          for attempt in $(seq 1 "${MAX_ATTEMPTS}"); do
+            waiting=false
+            for index in "${!workflow_ids[@]}"; do
+              if [ "${workflow_succeeded[${index}]}" = "true" ]; then
+                continue
+              fi
+
+              workflow_id="${workflow_ids[${index}]}"
+              workflow_name="${workflow_names[${index}]}"
+              # GitHub's `?head_sha=` and `?event=` query filters have been spuriously returning 0 results since 2026-04-27.
+              # Filter the latest 100 runs client-side instead.
               runs_url="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}/runs?per_page=100"
               runs_json="$(curl --proto '=https' --tlsv1.2 --retry 3 --fail --silent --show-error \
                 -H "Authorization: Bearer ${GH_TOKEN}" \
@@ -115,8 +138,8 @@ jobs:
 
               if [ "${success_count}" -gt 0 ]; then
                 echo "Found successful ${workflow_name} push run for ${TARGET_SHA}."
-                found_success=true
-                break
+                workflow_succeeded["${index}"]=true
+                continue
               fi
 
               if [ "${completed_count}" -gt 0 ] && [ "${in_progress_count}" -eq 0 ]; then
@@ -126,13 +149,24 @@ jobs:
               fi
 
               echo "Attempt ${attempt}/${MAX_ATTEMPTS}: waiting for ${workflow_name} push run for ${TARGET_SHA}."
-              if [ "${attempt}" -lt "${MAX_ATTEMPTS}" ]; then
-                sleep "${SLEEP_SECONDS}"
-              fi
+              waiting=true
             done
 
-            if [ "${found_success}" != "true" ]; then
-              echo "::error::Timed out waiting for successful ${workflow_name} push run for ${TARGET_SHA}."
-              exit 1
+            if [ "${waiting}" != "true" ]; then
+              break
+            fi
+            if [ "${attempt}" -lt "${MAX_ATTEMPTS}" ]; then
+              sleep "${SLEEP_SECONDS}"
             fi
           done
+
+          timed_out=false
+          for index in "${!workflow_ids[@]}"; do
+            if [ "${workflow_succeeded[${index}]}" != "true" ]; then
+              echo "::error::Timed out waiting for successful ${workflow_names[${index}]} push run for ${TARGET_SHA}."
+              timed_out=true
+            fi
+          done
+          if [ "${timed_out}" = "true" ]; then
+            exit 1
+          fi

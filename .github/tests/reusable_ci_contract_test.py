@@ -173,6 +173,10 @@ class ReusableCIContractTest(unittest.TestCase):
         ]
         self.assertEqual(expected_go_scripts, self.fixed_scripts(go))
         self.assertIn("fuzzer: ${{ fromJSON(inputs.fuzzers-json) }}", go)
+        self.assertIn(
+            "if: inputs.fuzzers-json != '' && fromJSON(inputs.fuzzers-json)[0] != null",
+            go,
+        )
         self.assertIn("go-version-file: ${{ inputs.go-version-file }}", go)
         self.assertIn("cache-dependency-path: ${{ inputs.go-cache-dependency-path }}", go)
         self.assertIn("MODULE_DIRECTORY: ${{ inputs.module-directory }}", go)
@@ -248,6 +252,56 @@ class ReusableCIContractTest(unittest.TestCase):
         self.assertIn(f"Found successful CI Verify push run for {TARGET_SHA}.", result.stdout)
         self.assertIn(f"Found successful E2E Playwright push run for {TARGET_SHA}.", result.stdout)
 
+    def test_release_gate_keeps_authoritative_client_side_run_filtering(self):
+        release = self.read_workflow(WORKFLOWS["release"])
+
+        self.assertIn("/runs?per_page=100\"", release)
+        self.assertNotRegex(release, r"runs\?[^\"\n]*(?:event|head_sha)=")
+        self.assertIn("spuriously returning 0 results since 2026-04-27", release)
+
+    def test_release_gate_uses_one_shared_poll_budget_for_every_workflow(self):
+        in_progress = {
+            "head_sha": TARGET_SHA,
+            "event": "push",
+            "head_branch": "dev/v1.7",
+            "status": "in_progress",
+            "conclusion": None,
+        }
+        success = {**in_progress, "status": "completed", "conclusion": "success"}
+        result = self.run_release_gate(
+            {},
+            runs_sequences_by_workflow={
+                "ci-verify.yml": [[in_progress], [success]],
+                "e2e-playwright.yml": [[in_progress], [success]],
+            },
+            max_attempts="2",
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(1, result.stdout.count("FAKE_SLEEP"), result.stdout)
+
+    def test_release_gate_waits_when_an_exact_run_is_still_in_progress(self):
+        exact_run = {
+            "head_sha": TARGET_SHA,
+            "event": "push",
+            "head_branch": "main",
+        }
+        result = self.run_release_gate(
+            {
+                "ci-verify.yml": [
+                    {**exact_run, "status": "completed", "conclusion": "failure"},
+                    {**exact_run, "status": "in_progress", "conclusion": None},
+                ],
+            }
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("Attempt 1/1: waiting for CI Verify", result.stdout)
+        self.assertIn(
+            f"Timed out waiting for successful CI Verify push run for {TARGET_SHA}.",
+            result.stdout,
+        )
+
     def test_release_gate_fails_closed_when_any_workflow_lacks_exact_success(self):
         result = self.run_release_gate(
             {
@@ -295,6 +349,25 @@ class ReusableCIContractTest(unittest.TestCase):
         self.assertIn("workflow-files-json must be a nonempty JSON array", bad_files.stdout)
         self.assertNotEqual(0, bad_attempts.returncode)
         self.assertIn("max-attempts must be a positive integer", bad_attempts.stdout)
+
+    def test_release_gate_rejects_non_github_api_hosts_before_api_calls(self):
+        result = self.run_release_gate(
+            {
+                "ci-verify.yml": [
+                    {
+                        "head_sha": TARGET_SHA,
+                        "event": "push",
+                        "head_branch": "main",
+                        "status": "completed",
+                        "conclusion": "success",
+                    }
+                ]
+            },
+            api_url="https://github.example/api/v3",
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("release-gate supports api.github.com only", result.stdout)
 
     def test_standards_validation_runs_this_contract(self):
         workflow = self.read_workflow(ROOT / ".github/workflows/standards-validation.yml")
@@ -369,6 +442,8 @@ class ReusableCIContractTest(unittest.TestCase):
         target_sha=TARGET_SHA,
         workflow_files_json=None,
         max_attempts="1",
+        api_url="https://api.github.com",
+        runs_sequences_by_workflow=None,
     ):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp = Path(temp_dir)
@@ -381,9 +456,18 @@ class ReusableCIContractTest(unittest.TestCase):
                 "ci-verify.yml": (123, "CI Verify"),
                 "e2e-playwright.yml": (456, "E2E Playwright"),
             }
-            for workflow_file, runs in runs_by_workflow.items():
+            sequences = {
+                workflow_file: [runs]
+                for workflow_file, runs in runs_by_workflow.items()
+            }
+            sequences.update(runs_sequences_by_workflow or {})
+            for workflow_file, runs_sequence in sequences.items():
                 workflow_id = metadata[workflow_file][0]
-                (fixtures / f"{workflow_id}.json").write_text(json.dumps({"workflow_runs": runs}))
+                for index, runs in enumerate(runs_sequence, start=1):
+                    (fixtures / f"{workflow_id}.{index}.json").write_text(
+                        json.dumps({"workflow_runs": runs})
+                    )
+                (fixtures / f"{workflow_id}.last").write_text(str(len(runs_sequence)))
 
             curl = fake_bin / "curl"
             curl.write_text(
@@ -392,20 +476,34 @@ class ReusableCIContractTest(unittest.TestCase):
                 "case \"$url\" in\n"
                 "  */actions/workflows/ci-verify.yml) printf '%s' '{\"id\":123,\"name\":\"CI Verify\",\"path\":\".github/workflows/ci-verify.yml\"}' ;;\n"
                 "  */actions/workflows/e2e-playwright.yml) printf '%s' '{\"id\":456,\"name\":\"E2E Playwright\",\"path\":\".github/workflows/e2e-playwright.yml\"}' ;;\n"
-                "  */actions/workflows/123/runs?per_page=100) cat \"$RUNS_FIXTURES/123.json\" ;;\n"
-                "  */actions/workflows/456/runs?per_page=100) cat \"$RUNS_FIXTURES/456.json\" ;;\n"
+                "  */actions/workflows/123/runs?per_page=100) workflow_id=123 ;;\n"
+                "  */actions/workflows/456/runs?per_page=100) workflow_id=456 ;;\n"
                 "  *) printf 'unexpected URL: %s\\n' \"$url\" >&2; exit 22 ;;\n"
                 "esac\n"
+                "if [ -n \"${workflow_id:-}\" ]; then\n"
+                "  count_file=\"$RUNS_FIXTURES/$workflow_id.count\"\n"
+                "  count=0\n"
+                "  [ ! -f \"$count_file\" ] || count=$(cat \"$count_file\")\n"
+                "  count=$((count + 1))\n"
+                "  printf '%s' \"$count\" > \"$count_file\"\n"
+                "  last=$(cat \"$RUNS_FIXTURES/$workflow_id.last\")\n"
+                "  [ \"$count\" -le \"$last\" ] || count=\"$last\"\n"
+                "  cat \"$RUNS_FIXTURES/$workflow_id.$count.json\"\n"
+                "fi\n"
             )
             curl.chmod(0o755)
 
+            sleep = fake_bin / "sleep"
+            sleep.write_text("#!/usr/bin/env bash\nprintf 'FAKE_SLEEP %s\\n' \"$1\"\n")
+            sleep.chmod(0o755)
+
             if workflow_files_json is None:
-                workflow_files_json = json.dumps(list(runs_by_workflow))
+                workflow_files_json = json.dumps(list(sequences))
             env = os.environ.copy()
             env.update(
                 {
                     "GH_TOKEN": "test-token",
-                    "GITHUB_API_URL": "https://api.github.test",
+                    "GITHUB_API_URL": api_url,
                     "GITHUB_REPOSITORY": "CodesWhat/example",
                     "MAX_ATTEMPTS": max_attempts,
                     "PATH": f"{fake_bin}:{env['PATH']}",
