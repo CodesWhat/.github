@@ -3,6 +3,7 @@ from pathlib import Path
 import runpy
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -52,7 +53,7 @@ class QualityReportContractTest(unittest.TestCase):
         )
         self.assertEqual("passed", report["outcome"])
         self.assertEqual(420, report["metrics"]["declared_budget_seconds"])
-        self.assertEqual(399.5, report["metrics"]["elapsed_seconds"])
+        self.assertEqual(420.0, report["metrics"]["elapsed_seconds"])
         self.assertEqual(1900000, report["metrics"]["executions"])
         self.assertEqual(5, report["metrics"]["new_interesting_inputs"])
         self.assertNotIn("canonical_score_pct", report["metrics"])
@@ -97,6 +98,23 @@ class QualityReportContractTest(unittest.TestCase):
         self.assertIn("tool process exited 2", summary)
         self.assertEqual(0, self.validate_report(report).returncode)
 
+    def test_crash_fixture_uses_a_native_go_crasher_path(self):
+        result = json.loads(
+            (
+                FIXTURES
+                / "crash"
+                / "quality-result-stats"
+                / "target-result.json"
+            ).read_text()
+        )
+
+        self.assertEqual(
+            {
+                "path": "internal/docker/testdata/fuzz/FuzzDecodeStats/6f2c1b8d9a4e5c37"
+            },
+            result["target"]["reproduction"],
+        )
+
     def test_parse_error_fixture_still_emits_an_error_report(self):
         result, report, summary = self.aggregate(
             "parse-error",
@@ -111,6 +129,33 @@ class QualityReportContractTest(unittest.TestCase):
         self.assertIsNone(report["metrics"])
         self.assertTrue(
             any("invalid JSON" in error for error in report["errors"]),
+            report["errors"],
+        )
+        self.assertIn("partial 1/2", summary)
+        self.assertEqual(0, self.validate_report(report).returncode)
+
+    def test_non_utf8_target_still_emits_an_error_report(self):
+        def corrupt_target(input_dir):
+            target = next(input_dir.rglob("target-result.json"))
+            target.write_bytes(b"\xff")
+
+        result, report, summary = self.aggregate(
+            "complete",
+            track="fuzz",
+            tool="go-fuzz",
+            expected=[
+                "internal/auth/FuzzVerifyRequest",
+                "internal/docker/FuzzDecodeStats",
+            ],
+            input_mutator=corrupt_target,
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertEqual("error", report["outcome"])
+        self.assertFalse(report["completeness"]["complete"])
+        self.assertIsNone(report["metrics"])
+        self.assertTrue(
+            any("cannot read JSON" in error for error in report["errors"]),
             report["errors"],
         )
         self.assertIn("partial 1/2", summary)
@@ -149,6 +194,14 @@ class QualityReportContractTest(unittest.TestCase):
 
         self.assertIn("`mutation` permits `gremlins` and `stryker`", decision)
         self.assertIn("`fuzz` permits `fast-check` and `go-fuzz`", decision)
+
+    def test_decision_defines_go_fuzz_as_the_native_go_engine(self):
+        decision = " ".join(DECISION.read_text().split())
+
+        self.assertIn(
+            "`go-fuzz` identifies Go's native `go test -fuzz` engine, not the legacy third-party go-fuzz tool.",
+            decision,
+        )
 
     def test_native_score_is_weighted_and_keeps_its_definition(self):
         result, report, summary = self.aggregate(
@@ -235,6 +288,21 @@ class QualityReportContractTest(unittest.TestCase):
         with self.assertRaisesRegex(QUALITY_REPORT["ContractError"], ">= 1"):
             QUALITY_REPORT["validate_fuzz_report_metrics"](metrics, [], "$.metrics")
 
+    def test_passed_fuzz_target_requires_its_full_declared_budget(self):
+        target = {
+            "name": "internal/auth/FuzzVerifyRequest",
+            "outcome": "passed",
+            "metrics": {
+                "budget_seconds": 300,
+                "elapsed_seconds": 299.99,
+            },
+        }
+
+        with self.assertRaisesRegex(
+            QUALITY_REPORT["ContractError"], "completed fuzz budget"
+        ):
+            QUALITY_REPORT["validate_target"](target, "fuzz", "$.target")
+
     def test_validator_requires_time_and_offset_in_timestamps(self):
         for timestamp in ("2026-08-14", "2026-08-14T15:00:00"):
             with self.subTest(timestamp=timestamp):
@@ -242,6 +310,91 @@ class QualityReportContractTest(unittest.TestCase):
                     QUALITY_REPORT["ContractError"], "RFC 3339"
                 ):
                     QUALITY_REPORT["require_timestamp"](timestamp, "$.run.started_at")
+
+    def test_invalid_json_contract_error_retains_its_cause(self):
+        with self.assertRaises(QUALITY_REPORT["ContractError"]) as raised:
+            QUALITY_REPORT["load_json_text"]("{", "target-result.json")
+
+        self.assertIsInstance(raised.exception.__cause__, json.JSONDecodeError)
+
+    def test_invalid_timestamp_contract_error_retains_its_cause(self):
+        with self.assertRaises(QUALITY_REPORT["ContractError"]) as raised:
+            QUALITY_REPORT["require_timestamp"]("2026-08-14", "$.run.started_at")
+
+        self.assertIsInstance(raised.exception.__cause__, ValueError)
+
+    def test_json_parser_rejects_duplicate_fields_and_non_finite_numbers(self):
+        cases = (
+            ('{"value": 1, "value": 2}', "duplicate JSON field"),
+            ('{"value": NaN}', "non-finite JSON number"),
+            ('{"value": Infinity}', "non-finite JSON number"),
+        )
+
+        for document, message in cases:
+            with self.subTest(document=document):
+                with self.assertRaisesRegex(QUALITY_REPORT["ContractError"], message):
+                    QUALITY_REPORT["load_json_text"](document, "target-result.json")
+
+    def test_mutation_aggregate_rejects_mixed_native_score_definitions(self):
+        targets = []
+        for definition in ("detected / covered", "killed / lived"):
+            targets.append(
+                {
+                    "metrics": {
+                        "killed": 1,
+                        "timeout": 0,
+                        "survived": 0,
+                        "no_coverage": 0,
+                        "invalid": 0,
+                        "ignored": 0,
+                        "tool_score_numerator": 1,
+                        "tool_score_denominator": 1,
+                        "tool_score_pct": 100.0,
+                        "tool_score_definition": definition,
+                    }
+                }
+            )
+
+        with self.assertRaisesRegex(
+            QUALITY_REPORT["ContractError"],
+            "inconsistent native score definitions",
+        ):
+            QUALITY_REPORT["aggregate_mutation_metrics"](targets)
+
+    def test_target_collection_rejects_unexpected_and_duplicate_names(self):
+        document = json.loads(
+            (
+                FIXTURES
+                / "complete"
+                / "quality-result-stats"
+                / "target-result.json"
+            ).read_text()
+        )
+        target_name = document["target"]["name"]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_dir = Path(temp_dir)
+            (input_dir / "unexpected").mkdir()
+            (input_dir / "unexpected" / "target-result.json").write_text(
+                json.dumps(document)
+            )
+            targets, errors = QUALITY_REPORT["collect_targets"](
+                input_dir, ["expected-target"], "fuzz", "go-fuzz"
+            )
+            self.assertEqual([], targets)
+            self.assertTrue(any("unexpected target" in error for error in errors))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_dir = Path(temp_dir)
+            for directory in ("first", "second"):
+                path = input_dir / directory
+                path.mkdir()
+                (path / "target-result.json").write_text(json.dumps(document))
+            targets, errors = QUALITY_REPORT["collect_targets"](
+                input_dir, [target_name], "fuzz", "go-fuzz"
+            )
+            self.assertEqual([target_name], [target["name"] for target in targets])
+            self.assertTrue(any("duplicate target" in error for error in errors))
 
     def test_schema_is_versioned_and_fail_closed(self):
         with SCHEMA.open() as schema_file:
@@ -258,6 +411,97 @@ class QualityReportContractTest(unittest.TestCase):
         self.assertEqual("quality-report/v1", schema["$defs"]["version"]["const"])
         self.assertNotIn("additionalProperties", schema)
         self.assertTrue(self.all_objects_are_closed(schema))
+
+    def test_schema_encodes_python_target_and_track_guards(self):
+        schema = json.loads(SCHEMA.read_text())
+        definitions = schema["$defs"]
+
+        self.assertEqual(
+            [
+                {
+                    "if": {
+                        "properties": {"outcome": {"const": "passed"}},
+                        "required": ["outcome"],
+                    },
+                    "then": {
+                        "properties": {"metrics": {"not": {"type": "null"}}},
+                        "not": {
+                            "anyOf": [
+                                {"required": ["diagnostic"]},
+                                {"required": ["reproduction"]},
+                            ]
+                        },
+                    },
+                    "else": {"required": ["diagnostic"]},
+                }
+            ],
+            definitions["target"]["allOf"],
+        )
+        self.assertEqual(
+            {"gremlins", "stryker"},
+            set(
+                definitions["targetResult"]["allOf"][0]["then"]["properties"][
+                    "tool"
+                ]["enum"]
+            ),
+        )
+        self.assertEqual(
+            {"fast-check", "go-fuzz"},
+            set(
+                definitions["targetResult"]["allOf"][0]["else"]["properties"][
+                    "tool"
+                ]["enum"]
+            ),
+        )
+        self.assertEqual(
+            "#/$defs/mutationTargetMetrics",
+            definitions["mutationTarget"]["allOf"][1]["properties"]["metrics"][
+                "oneOf"
+            ][0]["$ref"],
+        )
+        self.assertEqual(
+            "#/$defs/fuzzTargetMetrics",
+            definitions["fuzzTarget"]["allOf"][1]["properties"]["metrics"][
+                "oneOf"
+            ][0]["$ref"],
+        )
+        self.assertEqual(
+            ["reproduction"],
+            definitions["fuzzTarget"]["allOf"][2]["then"]["required"],
+        )
+        self.assertEqual(
+            "#/$defs/mutationTarget",
+            definitions["report"]["allOf"][0]["then"]["properties"]["targets"][
+                "items"
+            ]["$ref"],
+        )
+        self.assertEqual(
+            "#/$defs/fuzzTarget",
+            definitions["report"]["allOf"][0]["else"]["properties"]["targets"][
+                "items"
+            ]["$ref"],
+        )
+        self.assertEqual(
+            "#/$defs/mutationReportMetrics",
+            definitions["report"]["allOf"][0]["then"]["properties"]["metrics"][
+                "oneOf"
+            ][0]["$ref"],
+        )
+        self.assertEqual(
+            "#/$defs/fuzzReportMetrics",
+            definitions["report"]["allOf"][0]["else"]["properties"]["metrics"][
+                "oneOf"
+            ][0]["$ref"],
+        )
+        self.assertTrue(definitions["report"]["properties"]["targets"]["uniqueItems"])
+
+    def test_decision_names_python_as_the_cross_field_semantic_authority(self):
+        decision = " ".join(DECISION.read_text().split())
+
+        self.assertIn(
+            "The Python validator is authoritative for cross-field semantics that JSON Schema cannot express, including unique and sorted target names, recomputed completeness, outcomes, and aggregate metrics.",
+            decision,
+        )
 
     def test_reusable_workflow_matches_the_public_contract(self):
         workflow = WORKFLOW.read_text()
@@ -332,18 +576,20 @@ class QualityReportContractTest(unittest.TestCase):
             workflow.count("python3 .github/tests/quality_report_contract_test.py"),
         )
 
-    def aggregate(self, fixture, *, track, tool, expected):
+    def aggregate(self, fixture, *, track, tool, expected, input_mutator=None):
         self.assertTrue(SCRIPT.is_file(), f"missing aggregator: {SCRIPT}")
         with tempfile.TemporaryDirectory() as temp_dir:
             input_dir = Path(temp_dir) / "input"
             shutil.copytree(FIXTURES / fixture, input_dir)
+            if input_mutator is not None:
+                input_mutator(input_dir)
             for invalid_fixture in input_dir.rglob("target-result.invalid"):
                 invalid_fixture.rename(invalid_fixture.with_name("target-result.json"))
             output_dir = Path(temp_dir) / "output"
             github_output = Path(temp_dir) / "github-output"
             summary_path = Path(temp_dir) / "step-summary"
             command = [
-                "python3",
+                sys.executable,
                 str(SCRIPT),
                 "aggregate",
                 "--input-dir",
@@ -383,7 +629,9 @@ class QualityReportContractTest(unittest.TestCase):
                 "--github-step-summary",
                 str(summary_path),
             ]
-            result = subprocess.run(command, capture_output=True, text=True)
+            result = subprocess.run(
+                command, capture_output=True, text=True, timeout=30
+            )
             report_path = output_dir / "report.json"
             summary_file = output_dir / "summary.md"
             self.assertTrue(report_path.is_file(), result.stderr)
@@ -425,9 +673,10 @@ class QualityReportContractTest(unittest.TestCase):
             report_path = Path(temp_dir) / "report.json"
             report_path.write_text(json.dumps(report))
             return subprocess.run(
-                ["python3", str(SCRIPT), "validate", str(report_path)],
+                [sys.executable, str(SCRIPT), "validate", str(report_path)],
                 capture_output=True,
                 text=True,
+                timeout=30,
             )
 
     def all_objects_are_closed(self, value):

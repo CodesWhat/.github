@@ -79,14 +79,16 @@ def load_json_text(text, source):
             parse_constant=reject_constant,
         )
     except (json.JSONDecodeError, ContractError) as error:
-        raise ContractError("{0}: invalid JSON: {1}".format(source, error))
+        raise ContractError("{0}: invalid JSON: {1}".format(source, error)) from error
 
 
 def load_json_file(path):
     try:
         return load_json_text(path.read_text(), str(path))
-    except OSError as error:
-        raise ContractError("{0}: cannot read JSON: {1}".format(path, error))
+    except (OSError, UnicodeDecodeError) as error:
+        raise ContractError(
+            "{0}: cannot read JSON: {1}".format(path, error)
+        ) from error
 
 
 def require_object(value, path, required, optional=()):
@@ -168,8 +170,10 @@ def require_timestamp(value, path):
         if RFC3339_PATTERN.fullmatch(value) is None:
             raise ValueError
         datetime.fromisoformat(value.replace("Z", "+00:00").replace("z", "+00:00"))
-    except ValueError:
-        raise ContractError("{0}: expected RFC 3339 timestamp".format(path))
+    except ValueError as error:
+        raise ContractError(
+            "{0}: expected RFC 3339 timestamp".format(path)
+        ) from error
 
 
 def percentage(numerator, denominator):
@@ -238,6 +242,15 @@ def validate_target(target, track, path):
         validate_mutation_target_metrics(metrics, path + ".metrics")
     else:
         validate_fuzz_target_metrics(metrics, path + ".metrics")
+        if (
+            outcome == "passed"
+            and metrics["elapsed_seconds"] < metrics["budget_seconds"]
+        ):
+            raise ContractError(
+                "{0}.metrics.elapsed_seconds: passed target has not completed fuzz budget".format(
+                    path
+                )
+            )
 
     if outcome == "passed":
         if "diagnostic" in target or "reproduction" in target:

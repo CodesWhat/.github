@@ -55,12 +55,19 @@ job validates the set and publishes `quality-report/v1` with:
 - `targets`: the declared target names and their individual results
 - track-specific `metrics`
 
+`go-fuzz` identifies Go's native `go test -fuzz` engine, not the legacy
+third-party go-fuzz tool.
+
 The schema and dependency-free validator live under [`quality-report/v1`](../quality-report/v1).
 Both target-result fragments and aggregate reports carry the exact
 `quality-report/v1` version. Objects reject unknown fields, JSON parsing rejects
 duplicate fields and non-finite numbers, and semantic validation recomputes
 completeness, outcomes, and scores. Callers pass `expected_targets` as a
 non-empty JSON array of unique target names.
+
+The Python validator is authoritative for cross-field semantics that JSON
+Schema cannot express, including unique and sorted target names, recomputed
+completeness, outcomes, and aggregate metrics.
 
 Mutation metrics are:
 

@@ -9,7 +9,7 @@
     "metrics": null,
     "diagnostic": "tool process exited 2",
     "reproduction": {
-      "seed": "-test.fuzzcachedir=/tmp/fuzz-cache"
+      "path": "internal/docker/testdata/fuzz/FuzzDecodeStats/6f2c1b8d9a4e5c37"
     }
   }
 }

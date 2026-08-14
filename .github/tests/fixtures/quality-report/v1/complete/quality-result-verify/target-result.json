@@ -8,7 +8,7 @@
     "outcome": "passed",
     "metrics": {
       "budget_seconds": 300,
-      "elapsed_seconds": 288.25,
+      "elapsed_seconds": 300.0,
       "executions": 1250000,
       "new_interesting_inputs": 3
     }

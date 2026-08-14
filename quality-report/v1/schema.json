@@ -172,7 +172,112 @@
         "reproduction": {
           "$ref": "#/$defs/reproduction"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "outcome": {
+                "const": "passed"
+              }
+            },
+            "required": [
+              "outcome"
+            ]
+          },
+          "then": {
+            "properties": {
+              "metrics": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "diagnostic"
+                  ]
+                },
+                {
+                  "required": [
+                    "reproduction"
+                  ]
+                }
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "diagnostic"
+            ]
+          }
+        }
+      ]
+    },
+    "mutationTarget": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/target"
+        },
+        {
+          "properties": {
+            "metrics": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/mutationTargetMetrics"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "fuzzTarget": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/target"
+        },
+        {
+          "properties": {
+            "metrics": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/fuzzTargetMetrics"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "outcome": {
+                "enum": [
+                  "failed",
+                  "crashed",
+                  "flaked"
+                ]
+              }
+            },
+            "required": [
+              "outcome"
+            ]
+          },
+          "then": {
+            "required": [
+              "reproduction"
+            ]
+          }
+        }
+      ]
     },
     "targetResult": {
       "type": "object",
@@ -211,7 +316,47 @@
         "target": {
           "$ref": "#/$defs/target"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "track": {
+                "const": "mutation"
+              }
+            },
+            "required": [
+              "track"
+            ]
+          },
+          "then": {
+            "properties": {
+              "tool": {
+                "enum": [
+                  "gremlins",
+                  "stryker"
+                ]
+              },
+              "target": {
+                "$ref": "#/$defs/mutationTarget"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "tool": {
+                "enum": [
+                  "fast-check",
+                  "go-fuzz"
+                ]
+              },
+              "target": {
+                "$ref": "#/$defs/fuzzTarget"
+              }
+            }
+          }
+        }
+      ]
     },
     "mutationReportMetrics": {
       "type": "object",
@@ -465,6 +610,7 @@
         },
         "targets": {
           "type": "array",
+          "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/target"
           }
@@ -490,7 +636,71 @@
             "minLength": 1
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "track": {
+                "const": "mutation"
+              }
+            },
+            "required": [
+              "track"
+            ]
+          },
+          "then": {
+            "properties": {
+              "tool": {
+                "enum": [
+                  "gremlins",
+                  "stryker"
+                ]
+              },
+              "targets": {
+                "items": {
+                  "$ref": "#/$defs/mutationTarget"
+                }
+              },
+              "metrics": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/mutationReportMetrics"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "tool": {
+                "enum": [
+                  "fast-check",
+                  "go-fuzz"
+                ]
+              },
+              "targets": {
+                "items": {
+                  "$ref": "#/$defs/fuzzTarget"
+                }
+              },
+              "metrics": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/fuzzReportMetrics"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }
