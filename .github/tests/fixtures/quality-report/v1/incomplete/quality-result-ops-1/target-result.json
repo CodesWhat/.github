@@ -1,0 +1,22 @@
+{
+  "schema_version": "quality-report/v1",
+  "kind": "target-result",
+  "track": "mutation",
+  "tool": "stryker",
+  "target": {
+    "name": "apps-api-ops-1",
+    "outcome": "passed",
+    "metrics": {
+      "killed": 20,
+      "timeout": 2,
+      "survived": 3,
+      "no_coverage": 5,
+      "invalid": 1,
+      "ignored": 2,
+      "tool_score_numerator": 22,
+      "tool_score_denominator": 25,
+      "tool_score_pct": 88.0,
+      "tool_score_definition": "detected / mutants with test coverage"
+    }
+  }
+}
