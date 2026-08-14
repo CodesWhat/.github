@@ -1,0 +1,460 @@
+name: Reusable Go CI
+
+on:
+  workflow_call:
+    inputs:
+      module-directory:
+        description: Repository-relative Go module directory
+        required: false
+        type: string
+        default: .
+      go-version-file:
+        description: Repository-relative Go version file
+        required: false
+        type: string
+        default: go.mod
+      go-cache-dependency-path:
+        description: Repository-relative Go cache dependency path
+        required: false
+        type: string
+        default: go.sum
+      lint-check-name:
+        description: Exact display name for the Go lint job
+        required: false
+        type: string
+        default: Go Lint
+      test-check-name:
+        description: Exact display name for the Go test job
+        required: false
+        type: string
+        default: Go Test
+      fuzzers-json:
+        description: JSON array of caller-owned fuzzer name and pkg objects
+        required: false
+        type: string
+        default: "[]"
+      run-govulncheck:
+        description: Run the fixed repository govulncheck gate
+        required: false
+        type: boolean
+        default: false
+      run-qlty:
+        description: Run the fixed repository Qlty gate
+        required: false
+        type: boolean
+        default: false
+      run-goreleaser:
+        description: Run the fixed repository GoReleaser gate
+        required: false
+        type: boolean
+        default: false
+      run-workflow-security:
+        description: Run the central workflow security gate
+        required: false
+        type: boolean
+        default: false
+      run-commit-message:
+        description: Run the fixed repository commit-message gate on pull requests
+        required: false
+        type: boolean
+        default: false
+      run-codeql:
+        description: Run CodeQL for Actions and Go
+        required: false
+        type: boolean
+        default: false
+      test-egress-policy:
+        description: Harden Runner egress policy for Go test
+        required: false
+        type: string
+        default: audit
+      test-allowed-endpoints:
+        description: Harden Runner allowlist for Go test
+        required: false
+        type: string
+        default: ""
+      lint-egress-policy:
+        description: Harden Runner egress policy for Go lint
+        required: false
+        type: string
+        default: audit
+      lint-allowed-endpoints:
+        description: Harden Runner allowlist for Go lint
+        required: false
+        type: string
+        default: ""
+      govulncheck-egress-policy:
+        description: Harden Runner egress policy for govulncheck
+        required: false
+        type: string
+        default: audit
+      govulncheck-allowed-endpoints:
+        description: Harden Runner allowlist for govulncheck
+        required: false
+        type: string
+        default: ""
+      workflow-security-egress-policy:
+        description: Harden Runner egress policy for workflow security
+        required: false
+        type: string
+        default: audit
+      workflow-security-allowed-endpoints:
+        description: Harden Runner allowlist for workflow security
+        required: false
+        type: string
+        default: ""
+      commit-message-egress-policy:
+        description: Harden Runner egress policy for commit-message validation
+        required: false
+        type: string
+        default: audit
+      commit-message-allowed-endpoints:
+        description: Harden Runner allowlist for commit-message validation
+        required: false
+        type: string
+        default: ""
+      goreleaser-egress-policy:
+        description: Harden Runner egress policy for GoReleaser
+        required: false
+        type: string
+        default: audit
+      goreleaser-allowed-endpoints:
+        description: Harden Runner allowlist for GoReleaser
+        required: false
+        type: string
+        default: ""
+      codeql-egress-policy:
+        description: Harden Runner egress policy for CodeQL
+        required: false
+        type: string
+        default: audit
+      codeql-allowed-endpoints:
+        description: Harden Runner allowlist for CodeQL
+        required: false
+        type: string
+        default: ""
+      qlty-egress-policy:
+        description: Harden Runner egress policy for Qlty
+        required: false
+        type: string
+        default: audit
+      qlty-allowed-endpoints:
+        description: Harden Runner allowlist for Qlty
+        required: false
+        type: string
+        default: ""
+      fuzz-egress-policy:
+        description: Harden Runner egress policy for Go fuzzing
+        required: false
+        type: string
+        default: audit
+      fuzz-allowed-endpoints:
+        description: Harden Runner allowlist for Go fuzzing
+        required: false
+        type: string
+        default: ""
+
+permissions: {}
+
+jobs:
+  test:
+    name: ${{ inputs.test-check-name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: ${{ inputs.test-egress-policy }}
+          allowed-endpoints: ${{ inputs.test-allowed-endpoints }}
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ${{ inputs.go-version-file }}
+          cache-dependency-path: ${{ inputs.go-cache-dependency-path }}
+
+      - name: Run repository Go test gate
+        env:
+          MODULE_DIRECTORY: ${{ inputs.module-directory }}
+        run: ./scripts/ci/go-test.sh
+
+      - name: Upload Go test artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: go-test-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/go-test/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  lint:
+    name: ${{ inputs.lint-check-name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: ${{ inputs.lint-egress-policy }}
+          allowed-endpoints: ${{ inputs.lint-allowed-endpoints }}
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ${{ inputs.go-version-file }}
+          cache-dependency-path: ${{ inputs.go-cache-dependency-path }}
+
+      - name: Run repository Go lint gate
+        env:
+          MODULE_DIRECTORY: ${{ inputs.module-directory }}
+        run: ./scripts/ci/go-lint.sh
+
+  govulncheck:
+    name: Govulncheck
+    if: inputs.run-govulncheck
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: ${{ inputs.govulncheck-egress-policy }}
+          allowed-endpoints: ${{ inputs.govulncheck-allowed-endpoints }}
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ${{ inputs.go-version-file }}
+          cache-dependency-path: ${{ inputs.go-cache-dependency-path }}
+
+      - name: Run repository govulncheck gate
+        env:
+          MODULE_DIRECTORY: ${{ inputs.module-directory }}
+        run: ./scripts/ci/go-govulncheck.sh
+
+  workflow-security:
+    name: Workflow Security
+    if: inputs.run-workflow-security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: ${{ inputs.workflow-security-egress-policy }}
+          allowed-endpoints: ${{ inputs.workflow-security-allowed-endpoints }}
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
+        with:
+          token: ${{ github.token }}
+          advanced-security: false
+          online-audits: false
+
+  commit-message:
+    name: Commit Message
+    if: inputs.run-commit-message && github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: ${{ inputs.commit-message-egress-policy }}
+          allowed-endpoints: ${{ inputs.commit-message-allowed-endpoints }}
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run repository commit-message gate
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: ./scripts/ci/commit-message.sh
+
+  goreleaser:
+    name: GoReleaser Config
+    if: inputs.run-goreleaser
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: ${{ inputs.goreleaser-egress-policy }}
+          allowed-endpoints: ${{ inputs.goreleaser-allowed-endpoints }}
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ${{ inputs.go-version-file }}
+          cache-dependency-path: ${{ inputs.go-cache-dependency-path }}
+
+      - name: Run repository GoReleaser gate
+        env:
+          MODULE_DIRECTORY: ${{ inputs.module-directory }}
+        run: ./scripts/ci/go-release-check.sh
+
+  codeql:
+    name: CodeQL Analysis
+    if: inputs.run-codeql
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: ${{ inputs.codeql-egress-policy }}
+          allowed-endpoints: ${{ inputs.codeql-allowed-endpoints }}
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        with:
+          languages: actions, go
+          queries: security-and-quality
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ${{ inputs.go-version-file }}
+          cache-dependency-path: ${{ inputs.go-cache-dependency-path }}
+
+      - name: Build for CodeQL
+        env:
+          MODULE_DIRECTORY: ${{ inputs.module-directory }}
+        run: ./scripts/ci/go-codeql-build.sh
+
+      - name: Analyze with CodeQL
+        uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+
+  qlty:
+    name: Qlty Check
+    if: inputs.run-qlty
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: ${{ inputs.qlty-egress-policy }}
+          allowed-endpoints: ${{ inputs.qlty-allowed-endpoints }}
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Qlty
+        uses: qltysh/qlty-action/install@08a0a862c159eae9b9003081da6663d96efef637 # v2.3.0
+
+      - name: Run repository Qlty gate
+        env:
+          MODULE_DIRECTORY: ${{ inputs.module-directory }}
+        run: ./scripts/ci/go-qlty.sh
+
+  fuzz:
+    name: "Go Fuzz (${{ matrix.fuzzer.name }})"
+    if: inputs.fuzzers-json != '' && fromJSON(inputs.fuzzers-json)[0] != null
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        fuzzer: ${{ fromJSON(inputs.fuzzers-json) }}
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: ${{ inputs.fuzz-egress-policy }}
+          allowed-endpoints: ${{ inputs.fuzz-allowed-endpoints }}
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ${{ inputs.go-version-file }}
+          cache-dependency-path: ${{ inputs.go-cache-dependency-path }}
+
+      - name: Run repository Go fuzzer
+        env:
+          FUZZER: ${{ matrix.fuzzer.name }}
+          MODULE_DIRECTORY: ${{ inputs.module-directory }}
+          PKG: ${{ matrix.fuzzer.pkg }}
+        run: ./scripts/ci/go-fuzz.sh
+
+      - name: Upload Go fuzz artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: go-fuzz-${{ matrix.fuzzer.name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/go-fuzz/
+          if-no-files-found: ignore
+          retention-days: 14
