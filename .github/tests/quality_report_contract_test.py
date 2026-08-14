@@ -390,6 +390,34 @@ class QualityReportContractTest(unittest.TestCase):
             self.assertTrue(summary_file.is_file(), result.stderr)
             report = json.loads(report_path.read_text())
             summary = summary_file.read_text()
+            self.assertTrue(github_output.is_file(), result.stderr)
+            self.assertTrue(summary_path.is_file(), result.stderr)
+            github_outputs = dict(
+                line.split("=", 1) for line in github_output.read_text().splitlines()
+            )
+            canonical_score = ""
+            if (
+                report["track"] == "mutation"
+                and report["metrics"] is not None
+                and report["metrics"]["canonical_score_pct"] is not None
+            ):
+                canonical_score = "{0:.2f}".format(
+                    report["metrics"]["canonical_score_pct"]
+                )
+            self.assertEqual(
+                {
+                    "report_artifact_name": "quality-report-{0}-1234567890-2".format(
+                        track
+                    ),
+                    "completeness": str(report["completeness"]["complete"]).lower(),
+                    "expected_targets": str(report["completeness"]["expected"]),
+                    "reported_targets": str(report["completeness"]["reported"]),
+                    "outcome": report["outcome"],
+                    "canonical_score_pct": canonical_score,
+                },
+                github_outputs,
+            )
+            self.assertEqual(summary, summary_path.read_text())
             return result, report, summary
 
     def validate_report(self, report):
