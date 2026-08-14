@@ -228,6 +228,13 @@ class CommunityHealthContractTest(unittest.TestCase):
         for action in actions:
             self.assertRegex(action, r"^[^@]+@[0-9a-f]{40}$")
 
+        harden_marker = "      - name: Harden runner\n"
+        self.assertIn(harden_marker, workflow)
+        harden_step = workflow.split(harden_marker, 1)[1].split("\n      - name:", 1)[0]
+
+        self.assertIn("egress-policy: block", harden_step)
+        self.assertIn("allowed-endpoints: github.com:443", harden_step)
+
         checkout_marker = "      - name: Check out repository\n"
         self.assertIn(checkout_marker, workflow)
         checkout_step = workflow.split(checkout_marker, 1)[1].split(
