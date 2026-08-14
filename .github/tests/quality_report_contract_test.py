@@ -272,6 +272,13 @@ class QualityReportContractTest(unittest.TestCase):
         ):
             self.assertIn(expected, decision)
 
+    def test_standards_validation_runs_this_contract(self):
+        workflow = (ROOT / ".github/workflows/standards-validation.yml").read_text()
+        self.assertEqual(
+            1,
+            workflow.count("python3 .github/tests/quality_report_contract_test.py"),
+        )
+
     def aggregate(self, fixture, *, track, tool, expected):
         self.assertTrue(SCRIPT.is_file(), f"missing aggregator: {SCRIPT}")
         with tempfile.TemporaryDirectory() as temp_dir:
