@@ -1,0 +1,186 @@
+name: Reusable Node CI
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: Node.js version used by enabled jobs
+        required: false
+        type: string
+        default: 24
+      lockfile-path:
+        description: Repository-relative npm lockfile path or multiline paths
+        required: false
+        type: string
+        default: package-lock.json
+      lint-check-name:
+        description: Exact display name for the Node lint job
+        required: false
+        type: string
+        default: Node Lint
+      test-check-name:
+        description: Exact display name for the Node test job
+        required: false
+        type: string
+        default: Node Test
+      build-check-name:
+        description: Exact display name for the Node build job
+        required: false
+        type: string
+        default: Node Build
+      run-lint:
+        description: Run the fixed repository Node lint gate
+        required: false
+        type: boolean
+        default: false
+      run-test:
+        description: Run the fixed repository Node test gate
+        required: false
+        type: boolean
+        default: false
+      run-build:
+        description: Run the fixed repository Node build gate
+        required: false
+        type: boolean
+        default: false
+      lint-egress-policy:
+        description: Harden Runner egress policy for Node lint
+        required: false
+        type: string
+        default: audit
+      lint-allowed-endpoints:
+        description: Harden Runner allowlist for Node lint
+        required: false
+        type: string
+        default: ""
+      test-egress-policy:
+        description: Harden Runner egress policy for Node test
+        required: false
+        type: string
+        default: audit
+      test-allowed-endpoints:
+        description: Harden Runner allowlist for Node test
+        required: false
+        type: string
+        default: ""
+      build-egress-policy:
+        description: Harden Runner egress policy for Node build
+        required: false
+        type: string
+        default: audit
+      build-allowed-endpoints:
+        description: Harden Runner allowlist for Node build
+        required: false
+        type: string
+        default: ""
+
+permissions: {}
+
+jobs:
+  lint:
+    name: ${{ inputs.lint-check-name }}
+    if: inputs.run-lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: ${{ inputs.lint-egress-policy }}
+          allowed-endpoints: ${{ inputs.lint-allowed-endpoints }}
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.lockfile-path }}
+
+      - name: Run repository Node lint gate
+        run: ./scripts/ci/node-lint.sh
+
+  test:
+    name: ${{ inputs.test-check-name }}
+    if: inputs.run-test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: ${{ inputs.test-egress-policy }}
+          allowed-endpoints: ${{ inputs.test-allowed-endpoints }}
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.lockfile-path }}
+
+      - name: Run repository Node test gate
+        run: ./scripts/ci/node-test.sh
+
+      - name: Upload Node test artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: node-test-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/node-test/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  build:
+    name: ${{ inputs.build-check-name }}
+    if: inputs.run-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: ${{ inputs.build-egress-policy }}
+          allowed-endpoints: ${{ inputs.build-allowed-endpoints }}
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.lockfile-path }}
+
+      - name: Run repository Node build gate
+        run: ./scripts/ci/node-build.sh
+
+      - name: Upload Node build artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: node-build-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/node-build/
+          if-no-files-found: ignore
+          retention-days: 14
