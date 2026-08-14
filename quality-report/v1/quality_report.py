@@ -49,6 +49,9 @@ REPORT_FUZZ_FIELDS = {
     "new_interesting_inputs",
 }
 SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+RFC3339_PATTERN = re.compile(
+    r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$"
+)
 
 
 class ContractError(ValueError):
@@ -104,9 +107,13 @@ def require_object(value, path, required, optional=()):
     return value
 
 
-def require_string(value, path, *, pattern=None):
+def require_string(value, path, *, pattern=None, max_length=None):
     if not isinstance(value, str) or not value or "\n" in value or "\r" in value:
         raise ContractError("{0}: expected non-empty single-line string".format(path))
+    if max_length is not None and len(value) > max_length:
+        raise ContractError(
+            "{0}: expected at most {1} characters".format(path, max_length)
+        )
     if pattern is not None and pattern.fullmatch(value) is None:
         raise ContractError("{0}: invalid value".format(path))
     return value
@@ -158,7 +165,9 @@ def require_url(value, path):
 def require_timestamp(value, path):
     require_string(value, path)
     try:
-        datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if RFC3339_PATTERN.fullmatch(value) is None:
+            raise ValueError
+        datetime.fromisoformat(value.replace("Z", "+00:00").replace("z", "+00:00"))
     except ValueError:
         raise ContractError("{0}: expected RFC 3339 timestamp".format(path))
 
@@ -217,7 +226,7 @@ def validate_target(target, track, path):
         {"name", "outcome", "metrics"},
         {"diagnostic", "reproduction"},
     )
-    require_string(target["name"], path + ".name")
+    require_string(target["name"], path + ".name", max_length=256)
     outcome = require_enum(target["outcome"], path + ".outcome", OUTCOMES)
     metrics = target["metrics"]
     if metrics is None:
@@ -351,7 +360,9 @@ def validate_mutation_report_metrics(metrics, targets, path):
 def validate_fuzz_report_metrics(metrics, targets, path):
     require_object(metrics, path, REPORT_FUZZ_FIELDS)
     require_integer(
-        metrics["declared_budget_seconds"], path + ".declared_budget_seconds"
+        metrics["declared_budget_seconds"],
+        path + ".declared_budget_seconds",
+        minimum=1,
     )
     require_number(metrics["elapsed_seconds"], path + ".elapsed_seconds")
     require_nullable_integer(metrics["executions"], path + ".executions")
@@ -493,7 +504,13 @@ def parse_expected_targets(raw):
         raise ContractError("expected_targets: expected a non-empty JSON array")
     targets = []
     for index, target in enumerate(value):
-        targets.append(require_string(target, "expected_targets[{0}]".format(index)))
+        targets.append(
+            require_string(
+                target,
+                "expected_targets[{0}]".format(index),
+                max_length=256,
+            )
+        )
     if len(targets) != len(set(targets)):
         raise ContractError("expected_targets: duplicate target")
     return targets

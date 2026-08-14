@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import runpy
 import shutil
 import subprocess
 import tempfile
@@ -14,6 +15,7 @@ SCHEMA = CONTRACT_ROOT / "schema.json"
 WORKFLOW = ROOT / ".github" / "workflows" / "quality-report-aggregate.yml"
 DECISION = ROOT / "decisions" / "quality-reporting.md"
 SHA = "0123456789abcdef0123456789abcdef01234567"
+QUALITY_REPORT = runpy.run_path(str(SCRIPT))
 
 
 class QualityReportContractTest(unittest.TestCase):
@@ -134,6 +136,20 @@ class QualityReportContractTest(unittest.TestCase):
         self.assertEqual(93.33, metrics["tool_score_pct"])
         self.assertIn("Canonical score: **80.00%**", summary)
 
+    def test_decision_defines_canonical_score_as_a_percentage(self):
+        decision = DECISION.read_text()
+
+        self.assertIn(
+            "canonical_score_pct = 100 * detected / (detected + missed)",
+            decision,
+        )
+
+    def test_decision_documents_track_and_tool_pairings(self):
+        decision = " ".join(DECISION.read_text().split())
+
+        self.assertIn("`mutation` permits `gremlins` and `stryker`", decision)
+        self.assertIn("`fuzz` permits `fast-check` and `go-fuzz`", decision)
+
     def test_native_score_is_weighted_and_keeps_its_definition(self):
         result, report, summary = self.aggregate(
             "native-score",
@@ -189,6 +205,43 @@ class QualityReportContractTest(unittest.TestCase):
 
         self.assertNotEqual(0, validation.returncode)
         self.assertIn("started_at", validation.stderr)
+
+    def test_validator_rejects_target_names_beyond_the_schema_limit(self):
+        target = json.loads(
+            (
+                FIXTURES
+                / "complete"
+                / "quality-result-stats"
+                / "target-result.json"
+            ).read_text()
+        )
+        target["target"]["name"] = "x" * 257
+
+        with self.assertRaisesRegex(QUALITY_REPORT["ContractError"], "256"):
+            QUALITY_REPORT["validate_target_document"](target)
+        with self.assertRaisesRegex(QUALITY_REPORT["ContractError"], "256"):
+            QUALITY_REPORT["parse_expected_targets"](
+                json.dumps([target["target"]["name"]])
+            )
+
+    def test_validator_requires_a_positive_declared_fuzz_budget(self):
+        metrics = {
+            "declared_budget_seconds": 0,
+            "elapsed_seconds": 0,
+            "executions": 0,
+            "new_interesting_inputs": 0,
+        }
+
+        with self.assertRaisesRegex(QUALITY_REPORT["ContractError"], ">= 1"):
+            QUALITY_REPORT["validate_fuzz_report_metrics"](metrics, [], "$.metrics")
+
+    def test_validator_requires_time_and_offset_in_timestamps(self):
+        for timestamp in ("2026-08-14", "2026-08-14T15:00:00"):
+            with self.subTest(timestamp=timestamp):
+                with self.assertRaisesRegex(
+                    QUALITY_REPORT["ContractError"], "RFC 3339"
+                ):
+                    QUALITY_REPORT["require_timestamp"](timestamp, "$.run.started_at")
 
     def test_schema_is_versioned_and_fail_closed(self):
         with SCHEMA.open() as schema_file:

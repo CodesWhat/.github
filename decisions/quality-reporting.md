@@ -47,7 +47,8 @@ job validates the set and publishes `quality-report/v1` with:
 - `repository`, `ref`, `sha`
 - `run`: `id`, `attempt`, `event`, `url`, `started_at`
 - `track`: `mutation` or `fuzz`
-- `tool`: `stryker`, `gremlins`, `go-fuzz`, or `fast-check`
+- `tool`: `mutation` permits `gremlins` and `stryker`; `fuzz` permits
+  `fast-check` and `go-fuzz`
 - `policy`: `advisory` or `signal`
 - `completeness`: `expected`, `reported`, `complete`
 - `outcome`: `passed`, `failed`, `crashed`, `flaked`, `cancelled`, `error`
@@ -66,7 +67,8 @@ Mutation metrics are:
 - `killed`, `timeout`, `survived`, `no_coverage`, `invalid`, `ignored`
 - `detected = killed + timeout`
 - `missed = survived + no_coverage`
-- `canonical_score_pct = detected / (detected + missed)`
+- `canonical_score_pct = 100 * detected / (detected + missed)`, rounded
+  half-up to two decimals, or `null` when the denominator is zero
 - `tool_score_pct` and `tool_score_definition`
 
 Each target also supplies the native numerator and denominator. The aggregate
