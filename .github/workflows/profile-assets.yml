@@ -1,0 +1,60 @@
+name: Profile Assets
+
+on:
+  pull_request:
+    branches:
+      - main
+      - dev/repository-standards
+    paths:
+      - .github/tests/community_health_contract_test.py
+      - .github/workflows/profile-assets.yml
+      - .gitignore
+      - profile/*.svg
+      - scripts/generate_profile_svg.py
+  push:
+    branches:
+      - main
+    paths:
+      - .github/tests/community_health_contract_test.py
+      - .github/workflows/profile-assets.yml
+      - .gitignore
+      - profile/*.svg
+      - scripts/generate_profile_svg.py
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: profile-assets-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Profile Assets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: block
+          allowed-endpoints: github.com:443
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify generated profile assets
+        run: |
+          set -euo pipefail
+          python3 scripts/generate_profile_svg.py
+          git diff --exit-code -- profile/
+          changes="$(git status --porcelain --untracked-files=all -- profile/)"
+          if [[ -n "$changes" ]]; then
+            printf '%s\n' "$changes"
+            exit 1
+          fi

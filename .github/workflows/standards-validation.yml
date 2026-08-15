@@ -8,14 +8,18 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: standards-validation-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validation:
     name: Standards Validation
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
-      actions: read
-      contents: read
+      actions: read  # Read workflow metadata
+      contents: read  # Check out and validate repository files
 
     steps:
       - name: Harden runner
@@ -34,7 +38,9 @@ jobs:
           node-version: 24
 
       - name: Validate community health contract
-        run: python3 .github/tests/community_health_contract_test.py
+        run: |
+          python3 .github/tests/community_health_contract_test.py
+          python3 .github/tests/greptile_summon_contract_test.py
 
       - name: Compile Python
         run: python3 -m compileall -q .
@@ -74,9 +80,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
-      actions: read
-      contents: read
-      security-events: write
+      actions: read  # Read workflow metadata
+      contents: read  # Check out Python sources
+      security-events: write  # Upload CodeQL analysis
 
     steps:
       - name: Harden runner
