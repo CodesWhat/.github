@@ -47,6 +47,7 @@ class ReusableCIContractTest(unittest.TestCase):
             )
         )
         node_inputs = [
+            "module-directory",
             "node-version",
             "lockfile-path",
             "lint-check-name",
@@ -127,6 +128,7 @@ class ReusableCIContractTest(unittest.TestCase):
         ):
             self.assert_input("go", input_name, "boolean", default="false")
 
+        self.assert_input("node", "module-directory", "string", default=".")
         self.assert_input("node", "node-version", "string", default="24")
         self.assert_input("node", "lockfile-path", "string", default="package-lock.json")
         self.assert_input("node", "lint-check-name", "string", default="Node Lint")
@@ -204,6 +206,7 @@ class ReusableCIContractTest(unittest.TestCase):
         )
         self.assertIn("node-version: ${{ inputs.node-version }}", node)
         self.assertIn("cache-dependency-path: ${{ inputs.lockfile-path }}", node)
+        self.assertIn("MODULE_DIRECTORY: ${{ inputs.module-directory }}", node)
 
         for workflow in (go, node, self.read_workflow(WORKFLOWS["release"])):
             self.assertIn("runs-on: ubuntu-24.04", workflow)
