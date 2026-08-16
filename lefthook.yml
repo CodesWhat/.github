@@ -1,0 +1,12 @@
+# Local git hooks. Install once with: npx --yes lefthook install
+# pre-push mirrors the Standards Validation CI job via scripts/validate.sh.
+
+commit-msg:
+  commands:
+    conventional-commits:
+      run: bash scripts/check-commit-msg.sh {1}
+
+pre-push:
+  commands:
+    validate:
+      run: bash scripts/validate.sh
