@@ -37,7 +37,7 @@ fi
 
 echo "==> zizmor"
 if command -v zizmor >/dev/null 2>&1; then
-  zizmor .github/workflows/
+  zizmor --no-online-audits .github/workflows/
 else
   echo "zizmor not installed locally; CI will run it"
 fi

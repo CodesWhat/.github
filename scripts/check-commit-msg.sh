@@ -6,10 +6,10 @@ msg_file="$1"
 subject="$(head -n 1 "$msg_file")"
 
 case "$subject" in
-  Merge\ *|Revert\ *|fixup!\ *|squash!\ *) exit 0 ;;
+  "Merge branch "*|"Merge pull request "*|"Merge remote-tracking branch "*|"Revert \""*|fixup!\ *|squash!\ *) exit 0 ;;
 esac
 
-pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9./-]+\))?!?: .+'
+pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9./-]+\))?!?: [^[:space:]]'
 if ! [[ "$subject" =~ $pattern ]]; then
   {
     echo "commit subject must be plain Conventional Commits:"
