@@ -33,6 +33,16 @@ on:
         required: false
         type: string
         default: "[]"
+      run-test:
+        description: Run the fixed repository Go test gate
+        required: false
+        type: boolean
+        default: true
+      run-lint:
+        description: Run the fixed repository Go lint gate
+        required: false
+        type: boolean
+        default: true
       run-govulncheck:
         description: Run the fixed repository govulncheck gate
         required: false
@@ -159,6 +169,7 @@ permissions: {}
 jobs:
   test:
     name: ${{ inputs.test-check-name }}
+    if: inputs.run-test
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -198,6 +209,7 @@ jobs:
 
   lint:
     name: ${{ inputs.lint-check-name }}
+    if: inputs.run-lint
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
