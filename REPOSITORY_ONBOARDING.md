@@ -100,6 +100,20 @@ repositories. Language-specific tests do not.
   request an explicit CodeRabbit review on the first PR to prove it works.
 - [ ] Confirm CodeRabbit can access the repository and posts an actual review
   comment. A green check without review output is not enough for this test.
+  Automated Pro-level reviews are free on public repositories only; on
+  private repositories the free plan rate-limits automated reviews, and they
+  have not fired for this organization in practice. Organization policy: on a
+  private repository skip both CodeRabbit items, use cross-account human
+  review, and add the config when the repository goes public.
+- [ ] Keep `greptile.json` at exactly `{"skipReview": "AUTOMATIC"}`
+  (contract-tested in this repository) so Greptile never reviews unbidden. A
+  repository that wants opt-in second opinions adds a label-gated caller
+  workflow (`.github/workflows/greptile.yml`, firing on the `second-opinion`
+  label) that calls this repository's `greptile-summon.yml` at a pinned full
+  commit SHA. Pair the caller with a CodeRabbit `labeling_instructions` entry
+  for `second-opinion` and `auto_apply_labels` enabled, so applying the label
+  is criteria-driven rather than left to memory. The label is Greptile's only
+  trigger; never wire it to review every PR directly.
 
 ### Local gates
 
@@ -156,7 +170,8 @@ must push, and use `step-security/harden-runner` with the smallest practical
 egress allowlist.
 
 Every repository with executable code needs the applicable format or lint and
-test gates. Require coverage when the language and test tooling measure it, a
+test gates. Require coverage when the language and test tooling measure it
+(uploaded to Codecov, not Qlty Cloud), a
 production build when the repository ships a buildable artifact, dependency
 review when it has dependencies, workflow validation when it has GitHub Actions,
 and CodeQL when its language is supported. Add the matching language or artifact
@@ -174,8 +189,9 @@ checks below:
 - **GitHub Actions:** actionlint and zizmor on every PR, plus tests for
   non-trivial embedded shell and workflow contracts.
 - **Container image:** build the real Dockerfile, smoke-test the image, and scan
-  the built image and locked dependencies with Grype or the current organization
-  scanner.
+  the built image and locked dependencies with Grype. Trivy is deprecated
+  organization-wide in favor of Grype; do not adopt it, including as a Qlty
+  plugin.
 - **Public repository:** OpenSSF Scorecard on its supported triggers and
   dependency review on PRs.
 
@@ -200,8 +216,11 @@ gates are the alignment surface; the Qlty Cloud GitHub App is not.
 - [ ] Commit `.qlty/qlty.toml` (`config_version = "0"`) with the organization
   exclude baseline for generated, minified, and vendored paths. Drydock's file
   is the reference posture and Portwing's is its Go-repo mirror; start from the
-  closer of the two. The same file drives the local CLI and Qlty Cloud, so
-  changes to it are quality-gate changes, not formatting.
+  closer of the two. Do not copy the trivy plugin block from either reference:
+  trivy is deprecated in favor of Grype and its removal from both files is
+  tracked (drydock#753, portwing#135). The trufflehog plugin stays. The same
+  file drives the local CLI and Qlty Cloud, so changes to it are quality-gate
+  changes, not formatting.
 - [ ] Add the repository's Qlty gate script (`scripts/qlty-check-gate.sh all`)
   to `pre-push`, fail-fast like every other local gate. An advisory smells
   gate may run alongside it (Drydock pattern) but must not mask the gating
@@ -218,8 +237,12 @@ The Qlty Cloud GitHub App's statuses (`qlty check`, `qlty coverage`,
 `qlty coverage diff`) currently error organization-wide with out-of-minutes
 billing failures. Treat them as non-gating: never add them to required status
 checks, and do not chase these failures on PRs — the repository-run gate above
-is the enforced check. Qlty Cloud enrollment and usage data are not an
-organization-wide prerequisite; do not make a Cloud upload or check required
+is the enforced check. Coverage reporting is Codecov's job (decided
+2026-08-16): upload coverage to Codecov and carry its badge in the README.
+The Qlty Cloud App and its maintainability badge stay installed, but its
+coverage upload is not the coverage system and its checks stay non-required.
+Qlty Cloud enrollment and usage data are not an organization-wide
+prerequisite; do not make a Cloud upload or check required
 until the repository is enrolled and the check has proved stable. Local Qlty
 checks may still be stricter than this baseline.
 
