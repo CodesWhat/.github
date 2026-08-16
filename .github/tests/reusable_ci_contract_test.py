@@ -206,7 +206,9 @@ class ReusableCIContractTest(unittest.TestCase):
         )
         self.assertIn("node-version: ${{ inputs.node-version }}", node)
         self.assertIn("cache-dependency-path: ${{ inputs.lockfile-path }}", node)
-        self.assertIn("MODULE_DIRECTORY: ${{ inputs.module-directory }}", node)
+        self.assertEqual(
+            3, node.count("MODULE_DIRECTORY: ${{ inputs.module-directory }}")
+        )
 
         for workflow in (go, node, self.read_workflow(WORKFLOWS["release"])):
             self.assertIn("runs-on: ubuntu-24.04", workflow)
