@@ -25,6 +25,8 @@ class ReusableCIContractTest(unittest.TestCase):
             "lint-check-name",
             "test-check-name",
             "fuzzers-json",
+            "run-test",
+            "run-lint",
             "run-govulncheck",
             "run-qlty",
             "run-goreleaser",
@@ -113,6 +115,8 @@ class ReusableCIContractTest(unittest.TestCase):
         self.assert_input("go", "lint-check-name", "string", default="Go Lint")
         self.assert_input("go", "test-check-name", "string", default="Go Test")
         self.assert_input("go", "fuzzers-json", "string", default="[]")
+        for input_name in ("run-test", "run-lint"):
+            self.assert_input("go", input_name, "boolean", default="true")
         for input_name in (
             "run-govulncheck",
             "run-qlty",
