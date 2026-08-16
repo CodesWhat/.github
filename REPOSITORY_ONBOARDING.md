@@ -100,15 +100,20 @@ repositories. Language-specific tests do not.
   request an explicit CodeRabbit review on the first PR to prove it works.
 - [ ] Confirm CodeRabbit can access the repository and posts an actual review
   comment. A green check without review output is not enough for this test.
-  CodeRabbit's free Pro tier reviews public repositories only: on a private
-  repository skip both CodeRabbit items, use cross-account human review, and
-  add the config when the repository goes public.
+  Automated Pro-level reviews are free on public repositories only; on
+  private repositories the free plan rate-limits automated reviews, and they
+  have not fired for this organization in practice. Organization policy: on a
+  private repository skip both CodeRabbit items, use cross-account human
+  review, and add the config when the repository goes public.
 - [ ] Keep `greptile.json` at exactly `{"skipReview": "AUTOMATIC"}`
   (contract-tested in this repository) so Greptile never reviews unbidden. A
   repository that wants opt-in second opinions adds a label-gated caller
   workflow (`.github/workflows/greptile.yml`, firing on the `second-opinion`
   label) that calls this repository's `greptile-summon.yml` at a pinned full
-  commit SHA. Never wire Greptile to review automatically on every PR.
+  commit SHA. Pair the caller with a CodeRabbit `labeling_instructions` entry
+  for `second-opinion` and `auto_apply_labels` enabled, so applying the label
+  is criteria-driven rather than left to memory. The label is Greptile's only
+  trigger; never wire it to review every PR directly.
 
 ### Local gates
 
