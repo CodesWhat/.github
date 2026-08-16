@@ -115,10 +115,8 @@ repositories. Language-specific tests do not.
 - [ ] Add language formatters to `pre-commit` only when they can safely operate
   on staged files. Verify the hook does not rewrite unrelated work.
 
-Qlty Cloud enrollment and usage data are not an organization-wide prerequisite.
-Do not make a Qlty upload or check required until the repository is enrolled and
-the check has proved stable. Local Qlty checks may still be stricter than this
-baseline.
+Qlty spans local and CI gates; the full baseline, including why Qlty Cloud
+checks stay non-required, is in the Qlty subsection of section 4.
 
 ## 3. Protect `main`
 
@@ -193,6 +191,37 @@ Add these only when the behavior exists:
   with a clear enforced or advisory threshold.
 - [ ] Translation synchronization only for a repository with a translation
   source of truth and configured provider credentials.
+
+### Qlty
+
+Qlty appears in three places. The committed configuration and the repository-run
+gates are the alignment surface; the Qlty Cloud GitHub App is not.
+
+- [ ] Commit `.qlty/qlty.toml` (`config_version = "0"`) with the organization
+  exclude baseline for generated, minified, and vendored paths. Drydock's file
+  is the reference posture and Portwing's is its Go-repo mirror; start from the
+  closer of the two. The same file drives the local CLI and Qlty Cloud, so
+  changes to it are quality-gate changes, not formatting.
+- [ ] Add the repository's Qlty gate script (`scripts/qlty-check-gate.sh all`)
+  to `pre-push`, fail-fast like every other local gate. An advisory smells
+  gate may run alongside it (Drydock pattern) but must not mask the gating
+  script's failure.
+- [ ] Gate Qlty in CI with the repository-run check, which needs no Qlty Cloud
+  account. Go repositories call `go-ci.yml` with `run-qlty` enabled,
+  `qlty-egress-policy: block`, and the proven endpoint allowlist — copy the
+  allowlist from Portwing's `ci-verify.yml` rather than re-deriving it, and do
+  not widen it. Node repositories run the SHA-pinned
+  `qltysh/qlty-action/install` plus the same gate script inside their own
+  workflow (Drydock pattern).
+
+The Qlty Cloud GitHub App's statuses (`qlty check`, `qlty coverage`,
+`qlty coverage diff`) currently error organization-wide with out-of-minutes
+billing failures. Treat them as non-gating: never add them to required status
+checks, and do not chase these failures on PRs — the repository-run gate above
+is the enforced check. Qlty Cloud enrollment and usage data are not an
+organization-wide prerequisite; do not make a Cloud upload or check required
+until the repository is enrolled and the check has proved stable. Local Qlty
+checks may still be stricter than this baseline.
 
 ## 5. Add delivery controls only for shipped artifacts
 
