@@ -3,6 +3,11 @@ name: Reusable Node CI
 on:
   workflow_call:
     inputs:
+      module-directory:
+        description: Repository-relative Node module directory
+        required: false
+        type: string
+        default: .
       node-version:
         description: Node.js version used by enabled jobs
         required: false
@@ -105,6 +110,8 @@ jobs:
           cache-dependency-path: ${{ inputs.lockfile-path }}
 
       - name: Run repository Node lint gate
+        env:
+          MODULE_DIRECTORY: ${{ inputs.module-directory }}
         run: ./scripts/ci/node-lint.sh
 
   test:
@@ -135,6 +142,8 @@ jobs:
           cache-dependency-path: ${{ inputs.lockfile-path }}
 
       - name: Run repository Node test gate
+        env:
+          MODULE_DIRECTORY: ${{ inputs.module-directory }}
         run: ./scripts/ci/node-test.sh
 
       - name: Upload Node test artifacts
@@ -174,6 +183,8 @@ jobs:
           cache-dependency-path: ${{ inputs.lockfile-path }}
 
       - name: Run repository Node build gate
+        env:
+          MODULE_DIRECTORY: ${{ inputs.module-directory }}
         run: ./scripts/ci/node-build.sh
 
       - name: Upload Node build artifacts
