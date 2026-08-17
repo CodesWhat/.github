@@ -13,6 +13,7 @@ class CommunityHealthContractTest(unittest.TestCase):
         required = (
             "SECURITY.md",
             "CONTRIBUTING.md",
+            "CODE_OF_CONDUCT.md",
             ".github/CODEOWNERS",
             ".github/markdownlint-profile.yaml",
             ".github/ISSUE_TEMPLATE/bug_report.yml",
@@ -65,6 +66,17 @@ class CommunityHealthContractTest(unittest.TestCase):
             "SECURITY.md",
         ):
             self.assertIn(expected, guide)
+
+    def test_code_of_conduct_has_org_contact_and_attribution(self):
+        conduct = self.read_text("CODE_OF_CONDUCT.md")
+
+        for expected in (
+            "Contributor Covenant",
+            "security@codeswhat.com",
+            "monitored for both security and conduct reports",
+            "## Enforcement",
+        ):
+            self.assertIn(expected, conduct)
 
     def test_issue_forms_have_unique_ids_and_required_reproduction_fields(self):
         bug_report = self.read_text(".github/ISSUE_TEMPLATE/bug_report.yml")
