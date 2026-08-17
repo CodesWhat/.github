@@ -48,6 +48,14 @@ repositories. Language-specific tests do not.
   planning details in it.
 - [ ] Add `CONTRIBUTING.md` when the repository accepts contributions. It must
   agree with `AGENTS.md` about commands, branches, reviews, tests, and commits.
+- [ ] Rely on this repository's org-default community-health files
+  (CONTRIBUTING baseline, `SECURITY.md`, issue forms, PR template,
+  `CODE_OF_CONDUCT.md`). Add a local override only when the repository needs
+  repo-specific content, never as a reflex copy.
+- [ ] Public product repositories: enable GitHub Discussions and state the
+  routing in the README's Community section (durable bugs and feature
+  requests go to Issues, open-ended Q&A and ideas to Discussions, chat to
+  Discord). Meta and infrastructure repositories keep Discussions off.
 - [ ] Add tool-specific contributor instructions only when the tool is used.
   For example, `CLAUDE.md` can supplement `AGENTS.md`, but it does not replace
   the required `AGENTS.md`.
