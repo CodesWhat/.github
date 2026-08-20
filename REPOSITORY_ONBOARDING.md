@@ -215,6 +215,19 @@ Add these only when the behavior exists:
   with a clear enforced or advisory threshold.
 - [ ] Translation synchronization only for a repository with a translation
   source of truth and configured provider credentials.
+- [ ] Star-history chart refresh for a public repository whose README carries a
+  Star History section. Call this repository's `starchart-refresh.yml` at a
+  pinned full commit SHA from a thin caller on `schedule` plus
+  `workflow_dispatch`, granting the job `contents: write` and passing the
+  active integration branch as `branch`. It regenerates a first-party SVG from
+  GitHub's stargazer timestamps and commits it only when the chart actually
+  changed. The chart is a committed artifact rather than a live route or a
+  third-party embed on purpose: it needs no secret and makes no request at
+  render time, so a stale one is visible and a missing one is a visibly broken
+  image, where a route that loses its credential serves a plausible placeholder
+  at HTTP 200 indefinitely. Do not embed `star-history.com` or `warpchart.dev`;
+  both are retired organization-wide, and adopting the chart means removing
+  what it replaced in the same change.
 
 ### Qlty
 
