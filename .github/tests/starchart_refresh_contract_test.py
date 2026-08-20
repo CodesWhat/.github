@@ -1,5 +1,8 @@
 from pathlib import Path
 import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 
@@ -110,6 +113,26 @@ class StarchartRefreshContractTest(unittest.TestCase):
         self.assertNotIn("process.exit(1)", workflow)
         self.assertNotIn("process.exit(2)", workflow)
 
+    def test_embedded_generator_is_valid_javascript(self):
+        """This workflow never runs in this repository, so a syntax error in
+        the heredoc would first surface in a consumer's scheduled job. Parse
+        it here instead."""
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node is not available")
+
+        source = self.read_generator()
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "generator.mjs"
+            script.write_text(source)
+            result = subprocess.run(
+                [node, "--check", str(script)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_workflow_pins_actions_and_is_run_by_standards_validation(self):
         workflow = self.read_workflow()
         actions = re.findall(r"^\s+uses: ([^\s#]+)", workflow, re.MULTILINE)
@@ -124,6 +147,23 @@ class StarchartRefreshContractTest(unittest.TestCase):
     def read_workflow(self):
         self.assertTrue(WORKFLOW.is_file(), f"missing workflow: {WORKFLOW}")
         return WORKFLOW.read_text()
+
+    def read_generator(self):
+        """Recover the generator exactly as the shell will see it: YAML strips
+        the run block's base indentation, so a heredoc body that only looks
+        right in the file can still reach node malformed."""
+        workflow = self.read_workflow()
+        opener = "node --input-type=module - <<'GENERATOR'\n"
+        self.assertIn(opener, workflow)
+
+        indent = " " * (len(workflow.split(opener)[0].rsplit("\n", 1)[-1]))
+        self.assertTrue(indent, "expected the run block to be indented")
+
+        body = workflow.split(opener, 1)[1].split(f"\n{indent}GENERATOR", 1)[0]
+        return "\n".join(
+            line[len(indent):] if line.startswith(indent) else line
+            for line in body.split("\n")
+        )
 
 
 if __name__ == "__main__":
