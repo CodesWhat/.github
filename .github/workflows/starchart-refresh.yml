@@ -1,0 +1,195 @@
+name: Star Chart Refresh
+
+# Regenerates a repository's star-history chart as a first-party SVG and
+# commits it back. The chart is a committed artifact on purpose: it needs no
+# secret and no request at render time, so it cannot fail silently the way a
+# live route or a third-party embed can (standards/readme-shape.md).
+#
+# Callers declare their own triggers and pin this file by full commit SHA:
+#
+#   on:
+#     schedule: [{cron: "17 6 * * 1"}]
+#     workflow_dispatch:
+#   permissions: {}
+#   jobs:
+#     starchart:
+#       permissions:
+#         contents: write
+#       uses: CodesWhat/.github/.github/workflows/starchart-refresh.yml@<full SHA>
+#       with:
+#         branch: dev/v1.7
+#
+# The generator is embedded rather than checked out from a second repository
+# so that the caller's SHA pin covers every line of behaviour, with nothing
+# resolved at run time.
+
+on:
+  workflow_call:
+    inputs:
+      branch:
+        description: Branch to read and commit the refreshed chart to. Never main under the strict release flow.
+        required: true
+        type: string
+      output-path:
+        description: Path the SVG is written to, relative to the repository root.
+        required: false
+        default: docs/assets/star-history.svg
+        type: string
+      max-pages:
+        description: Safety cap on stargazer pages fetched (100 stars per page).
+        required: false
+        default: 100
+        type: number
+
+permissions: {}
+
+jobs:
+  refresh:
+    name: Star Chart Refresh
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: starchart-refresh-${{ github.repository }}-${{ inputs.branch }}
+      cancel-in-progress: false
+    permissions:
+      contents: write # Commit the regenerated SVG back to the caller's branch.
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            github.com:443
+
+      - name: Check out the caller at the target branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.branch }}
+          # Kept, unlike everywhere else in this org: the whole job is a
+          # commit-back, so the pushing credential has to survive checkout.
+          persist-credentials: true # zizmor: ignore[artipacked]
+
+      - name: Generate the star-history SVG
+        env:
+          # Read via the environment, never interpolated into the script body.
+          TARGET_REPO: ${{ github.repository }}
+          OUTPUT_PATH: ${{ inputs.output-path }}
+          MAX_PAGES: ${{ inputs.max-pages }}
+          GITHUB_API_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module - <<'GENERATOR'
+          import { mkdirSync, writeFileSync } from 'node:fs'
+          import { dirname } from 'node:path'
+
+          const repo = process.env.TARGET_REPO
+          const out = process.env.OUTPUT_PATH
+          const maxPages = Number(process.env.MAX_PAGES)
+          const auth = process.env.GITHUB_API_TOKEN
+
+          const api = async (path, accept) => {
+            const res = await fetch(`https://api.github.com/${path}`, {
+              headers: {
+                accept,
+                authorization: `Bearer ${auth}`,
+                'user-agent': 'codeswhat-starchart',
+                'x-github-api-version': '2022-11-28',
+              },
+            })
+            if (!res.ok) throw new Error(`GET ${path} -> ${res.status} ${res.statusText}`)
+            return res.json()
+          }
+
+          const total = (await api(`repos/${repo}`, 'application/vnd.github+json')).stargazers_count
+          const pages = Math.min(Math.ceil(total / 100), maxPages)
+          if (pages < Math.ceil(total / 100)) {
+            console.log(`::warning::capping at ${maxPages} pages; ${total} stars needs ${Math.ceil(total / 100)}`)
+          }
+
+          const stars = []
+          for (let p = 1; p <= pages; p++) {
+            const page = await api(
+              `repos/${repo}/stargazers?per_page=100&page=${p}`,
+              'application/vnd.github.star+json',
+            )
+            for (const s of page) if (s.starred_at) stars.push(new Date(s.starred_at).getTime())
+          }
+          stars.sort((a, b) => a - b)
+
+          // Too few points to plot is a real state for a young repo, not a
+          // failure. Leaving the previous SVG in place beats committing an
+          // empty chart or reporting red on nothing being wrong.
+          if (stars.length < 2) {
+            console.log(`::notice::${repo} has ${stars.length} star(s); leaving the chart untouched`)
+            process.exit(0)
+          }
+
+          const W = 800, H = 400, P = { t: 30, r: 30, b: 45, l: 60 }
+          const [t0, t1] = [stars[0], stars.at(-1)]
+          const x = (t) => P.l + ((t - t0) / (t1 - t0 || 1)) * (W - P.l - P.r)
+          const y = (n) => H - P.b - (n / stars.length) * (H - P.t - P.b)
+
+          const pts = stars.map((t, i) => `${x(t).toFixed(1)},${y(i + 1).toFixed(1)}`)
+          const line = `M ${x(t0).toFixed(1)},${y(0).toFixed(1)} L ${pts.join(' L ')}`
+          const area = `${line} L ${x(t1).toFixed(1)},${(H - P.b).toFixed(1)} L ${x(t0).toFixed(1)},${(H - P.b).toFixed(1)} Z`
+
+          const fmt = (ms) => new Date(ms).toISOString().slice(0, 7)
+          const ticks = 4
+          const xLabels = Array.from({ length: ticks + 1 }, (_, i) => {
+            const t = t0 + ((t1 - t0) * i) / ticks
+            // Anchor the end labels inward so they can't clip the viewBox edges.
+            const anchor = i === 0 ? 'start' : i === ticks ? 'end' : 'middle'
+            return `<text x="${x(t).toFixed(1)}" y="${H - P.b + 20}" text-anchor="${anchor}">${fmt(t)}</text>`
+          }).join('\n    ')
+          const yLabels = Array.from({ length: ticks + 1 }, (_, i) => {
+            const n = Math.round((stars.length * i) / ticks)
+            return `<line x1="${P.l}" y1="${y(n).toFixed(1)}" x2="${W - P.r}" y2="${y(n).toFixed(1)}" class="grid"/>
+              <text x="${P.l - 10}" y="${(y(n) + 4).toFixed(1)}" text-anchor="end">${n}</text>`
+          }).join('\n    ')
+
+          mkdirSync(dirname(out), { recursive: true })
+          writeFileSync(out, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Star history for ${repo}: ${stars.length} stars">
+            <title>Star history for ${repo}</title>
+            <style>
+              text { font: 12px ui-sans-serif, system-ui, sans-serif; fill: #8b949e; }
+              .title { font-size: 14px; font-weight: 600; fill: #e6edf3; }
+              .grid { stroke: #30363d; stroke-width: 1; }
+              .line { fill: none; stroke: #58a6ff; stroke-width: 2.5; stroke-linejoin: round; }
+              .area { fill: #58a6ff; opacity: 0.12; }
+              @media (prefers-color-scheme: light) {
+                text { fill: #57606a; } .title { fill: #1f2328; } .grid { stroke: #d0d7de; }
+              }
+            </style>
+            <rect width="${W}" height="${H}" fill="none"/>
+            <text x="${P.l}" y="20" class="title">${repo} &#183; ${stars.length} stars</text>
+            <g>
+              ${yLabels}
+            </g>
+            <path d="${area}" class="area"/>
+            <path d="${line}" class="line"/>
+            <g>
+              ${xLabels}
+            </g>
+          </svg>
+          `)
+          console.log(`${repo}: ${stars.length} stars, ${pages} API call(s) -> ${out}`)
+          GENERATOR
+
+      - name: Commit the chart only when it actually changed
+        env:
+          OUTPUT_PATH: ${{ inputs.output-path }}
+          TARGET_BRANCH: ${{ inputs.branch }}
+        run: |
+          set -euo pipefail
+          # --porcelain rather than `git diff`, which reports clean for a
+          # path that is new and therefore still untracked on first run.
+          if [ -z "$(git status --porcelain -- "$OUTPUT_PATH")" ]; then
+            echo "::notice::chart unchanged; nothing to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- "$OUTPUT_PATH"
+          git commit -m "chore(docs): refresh the star-history chart"
+          git push origin "HEAD:$TARGET_BRANCH"
