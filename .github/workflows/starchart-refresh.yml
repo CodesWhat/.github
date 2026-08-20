@@ -63,6 +63,22 @@ jobs:
             api.github.com:443
             github.com:443
 
+      - name: Reject a protected branch as the commit-back target
+        env:
+          TARGET_BRANCH: ${{ inputs.branch }}
+        run: |
+          set -euo pipefail
+          # Omitting a default only prevents omission. Under the strict
+          # release flow nothing commits back to a default branch, and a
+          # named rejection here beats a confusing push rejection at the end
+          # of the job, or none at all on a repo that forgot its ruleset.
+          case "${TARGET_BRANCH#refs/heads/}" in
+            main | master | HEAD | "")
+              echo "::error::refusing to commit the chart to '$TARGET_BRANCH'; pass an integration branch such as dev/v1.7" >&2
+              exit 1
+              ;;
+          esac
+
       - name: Check out the caller at the target branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -81,12 +97,24 @@ jobs:
         run: |
           node --input-type=module - <<'GENERATOR'
           import { mkdirSync, writeFileSync } from 'node:fs'
-          import { dirname } from 'node:path'
+          import { dirname, isAbsolute, relative, resolve } from 'node:path'
 
           const repo = process.env.TARGET_REPO
           const out = process.env.OUTPUT_PATH
           const maxPages = Number(process.env.MAX_PAGES)
           const auth = process.env.GITHUB_API_TOKEN
+          const workspace = process.env.GITHUB_WORKSPACE
+
+          // Reading through the environment stops script injection but not
+          // path traversal. A write outside the checkout is worse than an
+          // error: the commit step finds nothing staged and reports success.
+          const target = resolve(workspace, out)
+          if (isAbsolute(out) || relative(workspace, target).startsWith('..')) {
+            throw new Error(`output-path must stay inside the repository: ${out}`)
+          }
+          if (!Number.isInteger(maxPages) || maxPages < 1) {
+            throw new Error(`max-pages must be a positive integer, got: ${process.env.MAX_PAGES}`)
+          }
 
           const api = async (path, accept) => {
             const res = await fetch(`https://api.github.com/${path}`, {
@@ -102,9 +130,15 @@ jobs:
           }
 
           const total = (await api(`repos/${repo}`, 'application/vnd.github+json')).stargazers_count
-          const pages = Math.min(Math.ceil(total / 100), maxPages)
-          if (pages < Math.ceil(total / 100)) {
-            console.log(`::warning::capping at ${maxPages} pages; ${total} stars needs ${Math.ceil(total / 100)}`)
+          const pages = Math.ceil(total / 100)
+          // Truncating is a hard failure, not a warning. A chart drawn from
+          // the first N pages is a partial history rendered as a whole one,
+          // and a log line nobody reads is how that ships unnoticed.
+          if (pages > maxPages) {
+            throw new Error(
+              `${repo} has ${total} stars needing ${pages} pages but max-pages is ${maxPages}; ` +
+                'raise the cap rather than publishing a truncated history',
+            )
           }
 
           const stars = []
@@ -148,8 +182,11 @@ jobs:
               <text x="${P.l - 10}" y="${(y(n) + 4).toFixed(1)}" text-anchor="end">${n}</text>`
           }).join('\n    ')
 
-          mkdirSync(dirname(out), { recursive: true })
-          writeFileSync(out, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Star history for ${repo}: ${stars.length} stars">
+          // Write the path that was validated, not the raw input. In Actions
+          // the working directory is the workspace so they agree, but a
+          // check that doesn't govern the write is decoration.
+          mkdirSync(dirname(target), { recursive: true })
+          writeFileSync(target, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Star history for ${repo}: ${stars.length} stars">
             <title>Star history for ${repo}</title>
             <style>
               text { font: 12px ui-sans-serif, system-ui, sans-serif; fill: #8b949e; }

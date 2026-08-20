@@ -103,6 +103,39 @@ class StarchartRefreshContractTest(unittest.TestCase):
         for forbidden in ("--force", "--no-verify", "git tag", "gh pr merge"):
             self.assertNotIn(forbidden, workflow)
 
+    def test_a_default_branch_target_is_rejected_before_checkout(self):
+        """Omitting a default only prevents omission. A caller can still pass
+        main, and on a repo whose ruleset lets the push through that would
+        commit straight to the default branch."""
+        workflow = self.read_workflow()
+
+        guard = workflow.split("Reject a protected branch", 1)[1].split("- name:", 1)[0]
+        for branch in ("main", "master", "HEAD"):
+            self.assertIn(branch, guard)
+        self.assertIn("exit 1", guard)
+        self.assertIn("${TARGET_BRANCH#refs/heads/}", guard)
+
+        # The guard is worthless after the checkout has already happened.
+        self.assertLess(
+            workflow.index("Reject a protected branch"),
+            workflow.index("actions/checkout@"),
+        )
+
+    def test_generator_rejects_traversal_and_a_non_positive_page_cap(self):
+        """max-pages: 0 previously produced an empty star list, which took the
+        'too few stars' exit and reported a clean no-op for a repository that
+        actually has stars."""
+        workflow = self.read_workflow()
+
+        self.assertIn("relative(workspace, target).startsWith('..')", workflow)
+        self.assertIn("isAbsolute(out)", workflow)
+        self.assertIn("!Number.isInteger(maxPages) || maxPages < 1", workflow)
+
+        # Truncation must fail rather than publish a partial history.
+        self.assertIn("if (pages > maxPages)", workflow)
+        self.assertNotIn("Math.min(Math.ceil(total / 100), maxPages)", workflow)
+        self.assertNotIn("::warning::capping", workflow)
+
     def test_too_few_stars_is_a_clean_exit_not_a_failure(self):
         """A young repo having one star is a real state, not a broken build.
         Reporting red there trains people to ignore the signal."""
