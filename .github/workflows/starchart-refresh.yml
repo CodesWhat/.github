@@ -68,7 +68,10 @@ name: Star Chart Refresh
 # and there are four `github-actions[bot]`-actored `workflow_dispatch` runs
 # on record between 2026-08-04 and 2026-08-10 with real success and failure
 # conclusions. Suppression and a missing scope look similar and are not: one
-# is fixed by adding the scope, the other cannot be fixed.
+# is fixed by adding the scope, the other cannot be fixed. GitHub's
+# events-that-trigger-workflows reference says it outright: "With the
+# exception of `workflow_dispatch` and `repository_dispatch`, other
+# `GITHUB_TOKEN`-triggered events do not create workflow runs at all."
 #
 # `on: push: tags: ["v*"]` is the other working trigger and needs no new
 # scope anywhere, because the cut already pushes the tag with a PAT so that
