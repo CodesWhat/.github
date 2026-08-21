@@ -253,6 +253,18 @@ Add these only when the behavior exists:
   with a clear enforced or advisory threshold.
 - [ ] Translation synchronization only for a repository with a translation
   source of truth and configured provider credentials.
+- [ ] Release-invariant enforcement for a repository that tags releases. Call
+  this repository's `main-is-released.yml` at a pinned full commit SHA from a
+  thin caller on `schedule` plus `push` to `main` plus `workflow_dispatch`. The
+  called workflow declares `contents: read` itself, and a reusable workflow can
+  only narrow what the caller grants, so the caller needs no `permissions`
+  block beyond the top-level `permissions: {}` — a job-level grant would only
+  widen the ceiling it runs under. It asserts the section 3 invariant: an
+  untagged `main` head fails, and so does a prerelease tag unless the caller
+  passes `allow-prerelease: true`. A repository that never tags, such as a
+  continuously deployed site or a meta repository, should not call this at all
+  rather than call it with a carve-out; for those, "`main` equals production"
+  is enforced by the deploy.
 - [ ] Star-history chart refresh for a public repository whose README carries a
   Star History section. Call this repository's `starchart-refresh.yml` at a
   pinned full commit SHA from a thin caller on `release: [published]` plus
