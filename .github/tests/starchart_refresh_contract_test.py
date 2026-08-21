@@ -20,6 +20,7 @@ class StarchartRefreshContractTest(unittest.TestCase):
             "        required: true\n",
             "      output-path:\n",
             "        default: docs/assets/star-history.svg\n",
+            "      accent:\n",
             "      max-pages:\n",
             "        type: number\n",
             "permissions: {}",
@@ -62,10 +63,12 @@ class StarchartRefreshContractTest(unittest.TestCase):
         for expected in (
             "TARGET_REPO: ${{ github.repository }}",
             "OUTPUT_PATH: ${{ inputs.output-path }}",
+            "ACCENT: ${{ inputs.accent }}",
             "MAX_PAGES: ${{ inputs.max-pages }}",
             "TARGET_BRANCH: ${{ inputs.branch }}",
             "const repo = process.env.TARGET_REPO",
             "const out = process.env.OUTPUT_PATH",
+            "const accent = process.env.ACCENT",
         ):
             self.assertIn(expected, workflow)
 
@@ -78,8 +81,13 @@ class StarchartRefreshContractTest(unittest.TestCase):
         workflow = self.read_workflow()
 
         self.assertIn("<svg xmlns=", workflow)
-        self.assertIn("prefers-color-scheme: light", workflow)
         self.assertIn('role="img"', workflow)
+
+        # No media query, deliberately. GitHub's theme toggle does not reach
+        # one inside an <img>-embedded SVG, so a self-theming file shows a
+        # white card to anyone reading GitHub dark with a light OS. Two files
+        # and a README <picture> is the mechanism that does follow the toggle.
+        self.assertNotIn("prefers-color-scheme", workflow)
         for forbidden in ("<script", "xlink:href", "<foreignObject", "@import"):
             self.assertNotIn(forbidden, workflow)
 
@@ -135,6 +143,60 @@ class StarchartRefreshContractTest(unittest.TestCase):
         self.assertIn("if (pages > maxPages)", workflow)
         self.assertNotIn("Math.min(Math.ceil(total / 100), maxPages)", workflow)
         self.assertNotIn("::warning::capping", workflow)
+
+    def test_an_accent_that_is_not_a_colour_fails_rather_than_drawing_nothing(self):
+        """An unset or malformed accent reaches the SVG as stroke="" and
+        renders a chart with no line: a green run producing a broken image,
+        which is the silent-success shape this whole workflow exists to kill.
+        """
+        workflow = self.read_workflow()
+
+        self.assertIn("/^#[0-9a-fA-F]{6}$/.test(accent ?? '')", workflow)
+        # Required with no default, so a caller cannot inherit someone else's
+        # brand colour by forgetting to pass its own.
+        accent_block = workflow.split("      accent:\n", 1)[1].split("      max-pages:", 1)[0]
+        self.assertIn("required: true", accent_block)
+        self.assertNotIn("default:", accent_block)
+
+    def test_both_themes_are_written_and_committed_together(self):
+        """A <picture> that gained a fresh light chart and kept a stale dark
+        one shows two different histories depending on who is looking, and
+        nothing reports it as wrong."""
+        workflow = self.read_workflow()
+
+        self.assertIn("writeFileSync(target, light)", workflow)
+        self.assertIn("writeFileSync(darkTarget, dark)", workflow)
+        self.assertIn('DARK_PATH="${OUTPUT_PATH%.svg}-dark.svg"', workflow)
+        self.assertIn('git add -- "$OUTPUT_PATH" "$DARK_PATH"', workflow)
+        self.assertIn('git status --porcelain -- "$OUTPUT_PATH" "$DARK_PATH"', workflow)
+
+        # Both derivations strip a .svg suffix, so the input has to have one.
+        self.assertIn("!out.endsWith('.svg')", workflow)
+
+    def test_the_documented_trigger_is_the_release_cut_not_a_cron(self):
+        """A committed artifact refreshed on a schedule mutates underneath a
+        tag, which is what 'main is the released version' forbids."""
+        workflow = self.read_workflow()
+
+        example = workflow.split("#   on:\n", 1)[1].split("#   permissions:", 1)[0]
+        self.assertIn("release:", example)
+        self.assertIn("types: [published]", example)
+        self.assertIn('#         accent: "#49bcfb"', workflow)
+        self.assertNotIn("cron", example)
+        self.assertNotIn("schedule:", example)
+
+    def test_the_embedded_renderer_names_its_source(self):
+        """The same renderer exists here and in ops. Hand-copying is how they
+        drift, so the block is generated and says so."""
+        workflow = self.read_workflow()
+
+        self.assertIn("// BEGIN GENERATED FROM ops scripts/starchart/render-chart.mjs", workflow)
+        self.assertIn("// END GENERATED", workflow)
+        self.assertIn("splice-into-workflow.mjs", workflow)
+        self.assertLess(
+            workflow.index("// BEGIN GENERATED"),
+            workflow.index("// END GENERATED"),
+        )
 
     def test_too_few_stars_is_a_clean_exit_not_a_failure(self):
         """A young repo having one star is a real state, not a broken build.
