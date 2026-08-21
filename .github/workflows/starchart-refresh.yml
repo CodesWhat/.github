@@ -8,8 +8,6 @@ name: Star Chart Refresh
 # Callers declare their own triggers and pin this file by full commit SHA:
 #
 #   on:
-#     release:
-#       types: [published]
 #     workflow_dispatch:
 #   permissions: {}
 #   jobs:
@@ -18,13 +16,40 @@ name: Star Chart Refresh
 #         contents: write
 #       uses: CodesWhat/.github/.github/workflows/starchart-refresh.yml@<full SHA>
 #       with:
-#         branch: dev/v1.7
+#         branch: ${{ github.ref_name }}
 #         accent: "#49bcfb"
 #
-# The trigger is the release cut, not a cron. A committed artifact refreshed
-# on a schedule mutates underneath a tag, which is exactly what "main is the
-# released version" forbids. Regenerating at the cut means the chart in a
-# released README is as of that release.
+# The refresh belongs to the release cut, not to a cron. A committed artifact
+# refreshed on a schedule mutates underneath a tag, which is exactly what
+# "main is the released version" forbids.
+#
+# DO NOT trigger it with `release: [published]`. That looks right and never
+# runs. GitHub suppresses workflow runs for events caused by GITHUB_TOKEN, and
+# every repo here publishes its release with that credential — GoReleaser with
+# `GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` (portwing release.yml) or
+# `gh release create` with `GH_TOKEN: ${{ github.token }}` (drydock
+# release-cut.yml). A caller wired that way reads as correctly configured, is
+# green in every lint, and refreshes nothing, forever. Found 2026-08-21 by the
+# sockguard lane after this file had already told three repos to do it.
+#
+# The release-cut workflow dispatches this one instead:
+#
+#   - name: Dispatch starchart refresh
+#     env:
+#       GH_TOKEN: ${{ github.token }}
+#     run: gh workflow run starchart.yml --ref "$BRANCH"
+#
+# That works with no new credential because `workflow_dispatch` and
+# `repository_dispatch` are the two documented exceptions to the suppression.
+# The dispatch step must fail loudly rather than `|| true`: by the time it
+# runs the release is already published, so a swallowed error is the same
+# silent-success shape this whole workflow exists to remove.
+#
+# Prefer dispatching BEFORE the tag is cut where the flow allows it, so the
+# released README ships the chart it claims to. Dispatching after publish is
+# an accepted tradeoff — the chart then lands on the dev branch and main's
+# copy is one cut stale — because the requirement is that regeneration is
+# tied to the cut rather than to wall-clock time, and that holds either way.
 #
 # The generator is embedded rather than checked out from a second repository
 # so that the caller's SHA pin covers every line of behaviour, with nothing
