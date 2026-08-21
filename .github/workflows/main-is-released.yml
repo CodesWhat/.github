@@ -90,7 +90,7 @@ jobs:
             # A failed refetch is reported, never swallowed into a pass: the
             # loop still decides on whatever refs we actually have.
             git fetch --tags --force --quiet origin \
-              || echo "::warning::could not refetch tags on attempt ${attempt}; the verdict below uses the refs from checkout"
+              || echo "::warning::could not refetch tags on attempt ${attempt}; the verdict below uses the refs currently available on the runner"
           done
 
           if [ -z "$tag" ]; then

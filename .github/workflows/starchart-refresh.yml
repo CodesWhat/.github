@@ -40,7 +40,11 @@ name: Star Chart Refresh
 #     run: gh workflow run starchart.yml --ref "$BRANCH"
 #
 # That works with no new credential because `workflow_dispatch` and
-# `repository_dispatch` are the two documented exceptions to the suppression.
+# `repository_dispatch` are the two dispatch events that always create a run
+# even when GITHUB_TOKEN caused them. They are not the only exceptions —
+# `pull_request` with opened/synchronize/reopened creates a run in an
+# approval-required state rather than being suppressed outright — but they
+# are the two that fire unattended, which is what a release cut needs.
 # The dispatch step must fail loudly rather than `|| true`: by the time it
 # runs the release is already published, so a swallowed error is the same
 # silent-success shape this whole workflow exists to remove.
