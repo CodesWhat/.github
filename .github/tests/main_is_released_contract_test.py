@@ -35,7 +35,7 @@ class MainIsReleasedContractTest(unittest.TestCase):
         # drifted main too. It may only be used to report inside the failure
         # branch, never in the condition that decides pass or fail — so the
         # decisive slice is the condition line, not the whole if-block.
-        decisive = workflow.split("if ! tag=", 1)[1].split("\n", 1)[0]
+        decisive = workflow.split('if tag="$(', 1)[1].split("\n", 1)[0]
         self.assertIn("--exact-match", decisive)
         self.assertNotIn("--abbrev=0", decisive)
 
@@ -56,6 +56,38 @@ class MainIsReleasedContractTest(unittest.TestCase):
         wrong reason and reads as real drift."""
         workflow = self.read_workflow()
         self.assertIn("fetch-depth: 0", workflow)
+
+    def test_an_exact_match_alone_is_not_the_invariant(self):
+        """Any tag satisfies --exact-match, including a moving or descriptive
+        one. A tag literally named `snapshot` parked on a drifted main reads
+        as a clean pass, which is the exact failure this workflow exists to
+        catch. Found by the sockguard lane, 2026-08-21."""
+        workflow = self.read_workflow()
+
+        self.assertIn("[0-9]+\\.[0-9]+\\.[0-9]+", workflow)
+        self.assertIn("not a release version tag", workflow)
+
+        # Prerelease detection keys on the hyphen AFTER the version, not any
+        # hyphen anywhere — the old `case $tag in *-*)` called `my-tag` a
+        # prerelease and would have accepted it under allow-prerelease.
+        self.assertNotIn('case "$tag" in', workflow)
+        self.assertIn("^v?[0-9]+\\.[0-9]+\\.[0-9]+-", workflow)
+
+    def test_the_merge_to_tag_window_is_retried_not_reported_as_drift(self):
+        """A promotion merges before its tag is pushed. A run landing in that
+        window sees an untagged main and reports drift that resolves itself
+        seconds later, which trains people to ignore the one check whose job
+        is being noticed."""
+        workflow = self.read_workflow()
+
+        self.assertIn("for attempt in 1 2 3", workflow)
+        self.assertIn("git fetch --tags --force", workflow)
+        self.assertIn("sleep 20", workflow)
+
+        # The retry must not become a way to pass. A failed refetch is warned
+        # about and the loop still decides on the refs it has.
+        self.assertIn("::warning::could not refetch tags", workflow)
+        self.assertNotIn("exit 0", workflow)
 
     def test_a_prerelease_on_main_fails_by_default(self):
         """A release candidate on the default branch is the exact drift this

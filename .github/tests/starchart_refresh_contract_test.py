@@ -173,17 +173,42 @@ class StarchartRefreshContractTest(unittest.TestCase):
         # Both derivations strip a .svg suffix, so the input has to have one.
         self.assertIn("!out.endsWith('.svg')", workflow)
 
-    def test_the_documented_trigger_is_the_release_cut_not_a_cron(self):
-        """A committed artifact refreshed on a schedule mutates underneath a
-        tag, which is what 'main is the released version' forbids."""
+    def test_the_documented_trigger_is_a_dispatch_not_a_cron_or_a_release(self):
+        """Two ways to get this wrong, and the second one looks right.
+
+        A cron mutates a committed artifact underneath a tag, which 'main is
+        the released version' forbids. And `release: [published]` never fires
+        at all: GitHub suppresses workflow runs for events caused by
+        GITHUB_TOKEN, which is what every repo here publishes releases with,
+        so a caller wired that way is green everywhere and refreshes nothing.
+        This file told three repos to do exactly that on 2026-08-21 before the
+        sockguard lane caught it, so the example is pinned by a test now."""
         workflow = self.read_workflow()
 
         example = workflow.split("#   on:\n", 1)[1].split("#   permissions:", 1)[0]
-        self.assertIn("release:", example)
-        self.assertIn("types: [published]", example)
+        self.assertIn("workflow_dispatch:", example)
         self.assertIn('#         accent: "#49bcfb"', workflow)
-        self.assertNotIn("cron", example)
-        self.assertNotIn("schedule:", example)
+        for dead in ("release:", "types: [published]", "cron", "schedule:"):
+            self.assertNotIn(dead, example)
+
+    def test_the_suppression_trap_is_documented_not_just_avoided(self):
+        """Removing the bad example only stops it being copied from here. The
+        reason has to travel with it, or the next person reaches for the
+        release trigger from first principles and it fails the same silent
+        way."""
+        workflow = self.read_workflow()
+
+        for expected in (
+            "GITHUB_TOKEN",
+            "gh workflow run",
+            "workflow_dispatch` and",
+            "repository_dispatch",
+        ):
+            self.assertIn(expected, workflow)
+
+        # The failure mode named, so it reads as a trap rather than a
+        # preference: wired that way it lints clean and never runs.
+        self.assertIn("refreshes nothing", workflow)
 
     def test_the_embedded_renderer_names_its_source(self):
         """The same renderer exists here and in ops. Hand-copying is how they

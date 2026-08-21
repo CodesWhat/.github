@@ -73,20 +73,50 @@ jobs:
             exit 1
           fi
 
-          if ! tag="$(git describe --exact-match --tags HEAD 2>/dev/null)"; then
+          # A promotion merges before its tag is pushed, so a run landing in
+          # that window sees an untagged main and reports drift that resolves
+          # itself seconds later. Refetch and retry before believing it. This
+          # cannot mask real drift: a genuinely untagged main is still
+          # untagged on the last attempt.
+          tag=""
+          for attempt in 1 2 3; do
+            if tag="$(git describe --exact-match --tags HEAD 2>/dev/null)"; then
+              break
+            fi
+            tag=""
+            [ "$attempt" -eq 3 ] && break
+            echo "main is untagged on attempt ${attempt}; refetching tags in case a promotion is mid-cut"
+            sleep 20
+            # A failed refetch is reported, never swallowed into a pass: the
+            # loop still decides on whatever refs we actually have.
+            git fetch --tags --force --quiet origin \
+              || echo "::warning::could not refetch tags on attempt ${attempt}; the verdict below uses the refs currently available on the runner"
+          done
+
+          if [ -z "$tag" ]; then
             latest="$(git describe --tags --abbrev=0 HEAD 2>/dev/null || echo '<none reachable>')"
             ahead="$(git rev-list --count "${latest}..HEAD" 2>/dev/null || echo '?')"
             echo "::error::main is not a tagged release. Newest reachable tag is ${latest}, and main is ${ahead} commit(s) past it. Either cut a release or move the unshipped work to a dev branch." >&2
             exit 1
           fi
 
-          case "$tag" in
-            *-*)
-              if [ "$ALLOW_PRERELEASE" != "true" ]; then
-                echo "::error::main points at prerelease ${tag}. Prereleases belong on the dev branch; main carries what users actually run." >&2
-                exit 1
-              fi
-              echo "::warning::main points at prerelease ${tag}, accepted because allow-prerelease is set" ;;
-          esac
+          # An exact match alone is not the invariant. Any tag satisfies it,
+          # including one literally named "snapshot" or "latest" parked on a
+          # drifted main — which reads as a pass and is the failure this
+          # workflow exists to catch. Require a release-shaped tag.
+          if ! printf '%s' "$tag" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'; then
+            echo "::error::main points at ${tag}, which is not a release version tag (expected vMAJOR.MINOR.PATCH). A moving or descriptive tag satisfies an exact-match check while main carries unshipped work." >&2
+            exit 1
+          fi
+
+          # Prerelease is the part AFTER the version, so match on that rather
+          # than on any hyphen anywhere in the tag.
+          if printf '%s' "$tag" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+-'; then
+            if [ "$ALLOW_PRERELEASE" != "true" ]; then
+              echo "::error::main points at prerelease ${tag}. Prereleases belong on the dev branch; main carries what users actually run." >&2
+              exit 1
+            fi
+            echo "::warning::main points at prerelease ${tag}, accepted because allow-prerelease is set"
+          fi
 
           echo "main is released at ${tag}"
