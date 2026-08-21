@@ -142,6 +142,44 @@ checks stay non-required, is in the Qlty subsection of section 4.
 
 ## 3. Protect `main`
 
+`main` is the released version, not the newest work. It always equals what
+users currently have: the GA tag on a versioned product, production on a
+continuously deployed site. It is never the GA tag plus merged work that has
+not shipped. The next version lives on its own branch, `dev/vX.Y`, which is
+the integration target for every feature pull request, and prereleases are
+tagged there rather than on `main`.
+
+The reason is measurement accuracy rather than tidiness. OpenSSF Scorecard,
+CodeQL default-branch analysis, Dependabot alerts, README badges, and every
+published vulnerability report describe the default branch and nothing else.
+Unshipped work on `main` makes all of them describe software no user runs.
+
+One invariant covers it, and it is mechanical rather than a judgement call:
+
+```sh
+git describe --exact-match origin/main
+```
+
+Every commit on `main` is a tagged release, so an untagged `main` head is
+itself the alarm. Check the tag rather than auditing what a promotion diff
+contains. Call this repository's `main-is-released.yml` on a schedule to
+enforce it; see section 4.
+
+`main` advances only through a promotion pull request from `dev/*` or
+`maintenance/*` that is tagged on merge. There is no documentation, README, or
+generated-asset exception: a second path into `main` is a second thing that
+drifts, and an incorrect README is a defect in the released version like any
+other. Fix it on a hotfix branch and cut a patch release. For that to stay
+honest, a documentation-only release must skip artifact publication —
+GoReleaser, signing, deb/rpm, Homebrew, npm — or maintainers will route around
+the rule. Generated assets committed to the repository, such as a star-history
+chart, regenerate at the release cut rather than on a schedule that commits to
+a branch, so they cannot change underneath a tag.
+
+Adopting this on a repository whose `main` is already ahead of its newest tag
+means either cutting a release or resetting `main` to the last released tag.
+That is the maintainer's decision, because it changes what every user sees.
+
 Create an active branch ruleset named `Main branch protection`, targeting only
 the default branch. Its baseline is:
 
@@ -215,19 +253,38 @@ Add these only when the behavior exists:
   with a clear enforced or advisory threshold.
 - [ ] Translation synchronization only for a repository with a translation
   source of truth and configured provider credentials.
+- [ ] Release-invariant enforcement for a repository that tags releases. Call
+  this repository's `main-is-released.yml` at a pinned full commit SHA from a
+  thin caller on `schedule` plus `push` to `main` plus `workflow_dispatch`. The
+  called workflow declares `contents: read` itself, and a reusable workflow can
+  only narrow what the caller grants, so the caller needs no `permissions`
+  block beyond the top-level `permissions: {}` — a job-level grant would only
+  widen the ceiling it runs under. It asserts the section 3 invariant: an
+  untagged `main` head fails, and so does a prerelease tag unless the caller
+  passes `allow-prerelease: true`. A repository that never tags, such as a
+  continuously deployed site or a meta repository, should not call this at all
+  rather than call it with a carve-out; for those, "`main` equals production"
+  is enforced by the deploy.
 - [ ] Star-history chart refresh for a public repository whose README carries a
   Star History section. Call this repository's `starchart-refresh.yml` at a
-  pinned full commit SHA from a thin caller on `schedule` plus
+  pinned full commit SHA from a thin caller on `release: [published]` plus
   `workflow_dispatch`, granting the job `contents: write` and passing the
-  active integration branch as `branch`. It regenerates a first-party SVG from
-  GitHub's stargazer timestamps and commits it only when the chart actually
-  changed. The chart is a committed artifact rather than a live route or a
-  third-party embed on purpose: it needs no secret and makes no request at
-  render time, so a stale one is visible and a missing one is a visibly broken
-  image, where a route that loses its credential serves a plausible placeholder
-  at HTTP 200 indefinitely. Do not embed `star-history.com` or `warpchart.dev`;
-  both are retired organization-wide, and adopting the chart means removing
-  what it replaced in the same change.
+  active integration branch as `branch` and the repository's logo colour as
+  `accent`. It regenerates a first-party SVG pair from GitHub's stargazer
+  timestamps and commits only when the chart actually changed. The trigger is
+  the release cut rather than a schedule because a committed artifact
+  refreshed on a cron mutates underneath a tag, which section 3 forbids. The
+  chart is a committed artifact rather than a live route or a third-party
+  embed on purpose: it needs no secret and makes no request at render time, so
+  a stale one is visible and a missing one is a visibly broken image, where a
+  route that loses its credential serves a plausible placeholder at HTTP 200
+  indefinitely. Two files ship, `star-history.svg` and `star-history-dark.svg`,
+  because GitHub's theme toggle does not reach a media query inside an
+  `<img>`-embedded SVG but does drive a `<picture>` element in the README, so
+  the markup chooses and the `<img>` stays the fallback for anything that does
+  not understand `<picture>`. Do not embed `star-history.com` or
+  `warpchart.dev`; both are retired organization-wide, and adopting the chart
+  means removing what it replaced in the same change.
 
 ### Qlty
 

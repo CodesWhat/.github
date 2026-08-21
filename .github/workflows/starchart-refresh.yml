@@ -8,7 +8,8 @@ name: Star Chart Refresh
 # Callers declare their own triggers and pin this file by full commit SHA:
 #
 #   on:
-#     schedule: [{cron: "17 6 * * 1"}]
+#     release:
+#       types: [published]
 #     workflow_dispatch:
 #   permissions: {}
 #   jobs:
@@ -18,10 +19,19 @@ name: Star Chart Refresh
 #       uses: CodesWhat/.github/.github/workflows/starchart-refresh.yml@<full SHA>
 #       with:
 #         branch: dev/v1.7
+#         accent: "#49bcfb"
+#
+# The trigger is the release cut, not a cron. A committed artifact refreshed
+# on a schedule mutates underneath a tag, which is exactly what "main is the
+# released version" forbids. Regenerating at the cut means the chart in a
+# released README is as of that release.
 #
 # The generator is embedded rather than checked out from a second repository
 # so that the caller's SHA pin covers every line of behaviour, with nothing
-# resolved at run time.
+# resolved at run time. It is written by ops
+# scripts/starchart/splice-into-workflow.mjs from that repo's
+# render-chart.mjs; edit there and re-splice rather than editing the block
+# below by hand.
 
 on:
   workflow_call:
@@ -31,9 +41,19 @@ on:
         required: true
         type: string
       output-path:
-        description: Path the SVG is written to, relative to the repository root.
+        description: >
+          Path the light SVG is written to, relative to the repository root.
+          Must end in .svg; the dark sibling is written alongside it with a
+          -dark suffix.
         required: false
         default: docs/assets/star-history.svg
+        type: string
+      accent:
+        description: >
+          The repository's logo colour as #rrggbb. The dark-theme variant is
+          derived from it, so there is only one value to keep in sync. The
+          registry is in ops standards/readme-shape.md.
+        required: true
         type: string
       max-pages:
         description: Safety cap on stargazer pages fetched (100 stars per page).
@@ -87,11 +107,12 @@ jobs:
           # commit-back, so the pushing credential has to survive checkout.
           persist-credentials: true # zizmor: ignore[artipacked]
 
-      - name: Generate the star-history SVG
+      - name: Generate the star-history SVGs
         env:
           # Read via the environment, never interpolated into the script body.
           TARGET_REPO: ${{ github.repository }}
           OUTPUT_PATH: ${{ inputs.output-path }}
+          ACCENT: ${{ inputs.accent }}
           MAX_PAGES: ${{ inputs.max-pages }}
           GITHUB_API_TOKEN: ${{ github.token }}
         run: |
@@ -101,6 +122,7 @@ jobs:
 
           const repo = process.env.TARGET_REPO
           const out = process.env.OUTPUT_PATH
+          const accent = process.env.ACCENT
           const maxPages = Number(process.env.MAX_PAGES)
           const auth = process.env.GITHUB_API_TOKEN
           const workspace = process.env.GITHUB_WORKSPACE
@@ -111,6 +133,17 @@ jobs:
           const target = resolve(workspace, out)
           if (isAbsolute(out) || relative(workspace, target).startsWith('..')) {
             throw new Error(`output-path must stay inside the repository: ${out}`)
+          }
+          // The dark sibling is derived from this path and the commit step
+          // derives it again in shell. Both derivations assume the suffix.
+          if (!out.endsWith('.svg')) {
+            throw new Error(`output-path must end in .svg: ${out}`)
+          }
+          // An accent that isn't a colour renders a chart with no line rather
+          // than failing, which is the silent-success shape this file exists
+          // to avoid. Reject it here instead.
+          if (!/^#[0-9a-fA-F]{6}$/.test(accent ?? '')) {
+            throw new Error(`accent must be a #rrggbb colour, got: ${accent}`)
           }
           if (!Number.isInteger(maxPages) || maxPages < 1) {
             throw new Error(`max-pages must be a positive integer, got: ${process.env.MAX_PAGES}`)
@@ -159,58 +192,285 @@ jobs:
             process.exit(0)
           }
 
-          const W = 800, H = 400, P = { t: 30, r: 30, b: 45, l: 60 }
-          const [t0, t1] = [stars[0], stars.at(-1)]
-          const x = (t) => P.l + ((t - t0) / (t1 - t0 || 1)) * (W - P.l - P.r)
-          const y = (n) => H - P.b - (n / stars.length) * (H - P.t - P.b)
+          // BEGIN GENERATED FROM ops scripts/starchart/render-chart.mjs
+          // Shared renderer: star timestamps -> self-contained SVG.
+          // Split out from the fetch layer so the identical code can be exercised
+          // against fixture data without hitting the API.
+          //
+          // The visual shape is fixed (standards/readme-shape.md). The only thing a
+          // repository varies is `accent`, its logo's main colour.
 
-          const pts = stars.map((t, i) => `${x(t).toFixed(1)},${y(i + 1).toFixed(1)}`)
-          const line = `M ${x(t0).toFixed(1)},${y(0).toFixed(1)} L ${pts.join(' L ')}`
-          const area = `${line} L ${x(t1).toFixed(1)},${(H - P.b).toFixed(1)} L ${x(t0).toFixed(1)},${(H - P.b).toFixed(1)} Z`
+          const W = 900
+          const H = 460
+          const PLOT = { l: 62, r: 860, top: 76, base: 408 }
+          const SAMPLE = 10 // px between resampled points along the curve
 
-          const fmt = (ms) => new Date(ms).toISOString().slice(0, 7)
-          const ticks = 4
-          const xLabels = Array.from({ length: ticks + 1 }, (_, i) => {
-            const t = t0 + ((t1 - t0) * i) / ticks
-            // Anchor the end labels inward so they can't clip the viewBox edges.
-            const anchor = i === 0 ? 'start' : i === ticks ? 'end' : 'middle'
-            return `<text x="${x(t).toFixed(1)}" y="${H - P.b + 20}" text-anchor="${anchor}">${fmt(t)}</text>`
-          }).join('\n    ')
-          const yLabels = Array.from({ length: ticks + 1 }, (_, i) => {
-            const n = Math.round((stars.length * i) / ticks)
-            return `<line x1="${P.l}" y1="${y(n).toFixed(1)}" x2="${W - P.r}" y2="${y(n).toFixed(1)}" class="grid"/>
-              <text x="${P.l - 10}" y="${(y(n) + 4).toFixed(1)}" text-anchor="end">${n}</text>`
-          }).join('\n    ')
+          const LIGHT = {
+            card: '#ffffff',
+            edge: '#d0d7de',
+            ink: '#1f2328',
+            muted: '#656d76',
+            grid: '#eaeef2',
+            axis: '#d0d7de',
+            ylabel: '#8c959f',
+          }
+          const DARK = {
+            card: '#0d1117',
+            edge: '#30363d',
+            ink: '#e6edf3',
+            muted: '#8b949e',
+            grid: '#21262d',
+            axis: '#30363d',
+            ylabel: '#6e7681',
+          }
+
+          const SANS = "-apple-system,'Segoe UI',Helvetica,Arial,sans-serif"
+          const MONO = 'ui-monospace,SFMono-Regular,Menlo,monospace'
+
+          const NICE = [1, 2, 2.5, 4, 5, 10]
+          // Pick a y-axis that reads like a human wrote it (50/100/150/200) AND wastes
+          // as little of the plot as possible. Rounding the step alone isn't enough:
+          // 239 stars over 4 ticks rounds to 100, which puts the curve in the bottom
+          // 60% of a chart whose whole job is showing the curve. So search step-and-
+          // tick-count pairs and keep the smallest ceiling that clears the total.
+          const niceAxis = (total) => {
+            const need = Math.max(total * 1.02, 1)
+            let best = null
+            for (let ticks = 3; ticks <= 6; ticks += 1) {
+              for (let mag = 1; mag <= 10 ** 7; mag *= 10) {
+                for (const n of NICE) {
+                  const step = n * mag
+                  if (!Number.isInteger(step)) continue
+                  const max = step * ticks
+                  if (max < need) continue
+                  if (!best || max < best.max) best = { step, ticks, max }
+                  break
+                }
+              }
+            }
+            return best
+          }
+
+          const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+          const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          const num = (n) => Number(n.toFixed(1))
+
+          // "Feb 10 - Aug 21, 2026" when the whole history sits in one year, and both
+          // years spelled out when it doesn't. The axis below carries month names only,
+          // so this line is the sole place the year appears in the common case.
+          const range = (a, b) => {
+            const [d0, d1] = [new Date(a), new Date(b)]
+            const [y0, y1] = [d0.getUTCFullYear(), d1.getUTCFullYear()]
+            const day = (d) => `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`
+            return y0 === y1
+              ? `${day(d0)} – ${day(d1)}, ${y1}`
+              : `${day(d0)}, ${y0} – ${day(d1)}, ${y1}`
+          }
+
+          const srgb = (c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
+          const luminance = (hex) => {
+            const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+            return 0.2126 * srgb(r) + 0.7152 * srgb(g) + 0.0722 * srgb(b)
+          }
+          const contrast = (a, b) => {
+            const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p)
+            return (x + 0.05) / (y + 0.05)
+          }
+
+          const toHsl = (hex) => {
+            const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+            const mx = Math.max(r, g, b)
+            const mn = Math.min(r, g, b)
+            const l = (mx + mn) / 2
+            if (mx === mn) return [0, 0, l]
+            const d = mx - mn
+            const s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn)
+            const h =
+              mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4
+            return [h / 6, s, l]
+          }
+          const channel = (p, q, t0) => {
+            const t = (t0 + 1) % 1
+            if (t < 1 / 6) return p + (q - p) * 6 * t
+            if (t < 1 / 2) return q
+            if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6
+            return p
+          }
+          const toHex = (h, s, l) => {
+            let rgb = [l, l, l]
+            if (s) {
+              const q = l < 0.5 ? l * (1 + s) : l + s - l * s
+              const p = 2 * l - q
+              rgb = [channel(p, q, h + 1 / 3), channel(p, q, h), channel(p, q, h - 1 / 3)]
+            }
+            return `#${rgb.map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('')}`
+          }
+
+          // A logo colour picked against white can vanish on GitHub's dark surface:
+          // portwing's #7230d2 scores 2.8:1 there. Rather than make every repository
+          // record two colours and keep them in sync, derive the dark one by raising
+          // lightness at a fixed hue and saturation until it clears 6:1 — the band
+          // drydock's untouched #49bcfb already sits in. Lifting lightness rather than
+          // blending toward white is what keeps sockguard's orange an orange instead of
+          // fading it to salmon.
+          const DARK_TARGET = 6
+          const forDark = (accent, surface) => {
+            const [h, s] = toHsl(accent)
+            let [, , l] = toHsl(accent)
+            let out = accent
+            while (contrast(out, surface) < DARK_TARGET && l < 0.92) {
+              l += 0.02
+              out = toHex(h, s, l)
+            }
+            return out
+          }
+
+          // Resample the step function onto an even x grid, then run a monotone cubic
+          // (Fritsch-Carlson) through it. A plain cardinal spline overshoots on a curve
+          // this flat, and an overshoot on a cumulative star count draws a dip that
+          // never happened.
+          const smoothPath = (points) => {
+            const n = points.length
+            const slope = []
+            for (let i = 0; i < n - 1; i += 1) {
+              slope.push((points[i + 1][1] - points[i][1]) / (points[i + 1][0] - points[i][0]))
+            }
+            const tan = [slope[0]]
+            for (let i = 1; i < n - 1; i += 1) {
+              tan.push(slope[i - 1] * slope[i] <= 0 ? 0 : (slope[i - 1] + slope[i]) / 2)
+            }
+            tan.push(slope[n - 2])
+            for (let i = 0; i < n - 1; i += 1) {
+              if (slope[i] === 0) {
+                tan[i] = 0
+                tan[i + 1] = 0
+                continue
+              }
+              const a = tan[i] / slope[i]
+              const b = tan[i + 1] / slope[i]
+              const s = a * a + b * b
+              if (s > 9) {
+                const t = 3 / Math.sqrt(s)
+                tan[i] = t * a * slope[i]
+                tan[i + 1] = t * b * slope[i]
+              }
+            }
+
+            let d = `M ${num(points[0][0])},${num(points[0][1])}`
+            for (let i = 0; i < n - 1; i += 1) {
+              const [x0, y0] = points[i]
+              const [x1, y1] = points[i + 1]
+              const h = (x1 - x0) / 3
+              d += ` C ${num(x0 + h)},${num(y0 + tan[i] * h)} ${num(x1 - h)},${num(y1 - tan[i + 1] * h)} ${num(x1)},${num(y1)}`
+            }
+            return d
+          }
+
+          const draw = (repo, stars, accent, theme, id) => {
+            const c = theme === 'dark' ? DARK : LIGHT
+            const ink = theme === 'dark' ? forDark(accent, c.card) : accent
+            const total = stars.length
+            const [t0, t1] = [stars[0], stars.at(-1)]
+            const { step, ticks, max: yMax } = niceAxis(total)
+
+            const plotW = PLOT.r - PLOT.l
+            const plotH = PLOT.base - PLOT.top
+            const x = (t) => PLOT.l + ((t - t0) / (t1 - t0 || 1)) * plotW
+            const y = (n) => PLOT.base - (n / yMax) * plotH
+
+            // Star i lands at x(stars[i]); between stars the count is flat. Sample that
+            // step function on an even grid so the spline has uniform spans to work with.
+            const grid = []
+            for (let px = PLOT.l; px < PLOT.r; px += SAMPLE) grid.push(px)
+            grid.push(PLOT.r)
+            let seen = 0
+            const points = grid.map((px) => {
+              while (seen < total && x(stars[seen]) <= px) seen += 1
+              return [px, y(seen)]
+            })
+
+            const linePath = smoothPath(points)
+            const areaPath = `${linePath} L ${PLOT.r},${PLOT.base} L ${PLOT.l},${PLOT.base} Z`
+
+            const gridLines = Array.from({ length: ticks - 1 }, (_, i) => {
+              const gy = num(y(step * (i + 1)))
+              return `<line x1="${PLOT.l}" y1="${gy}" x2="${PLOT.r}" y2="${gy}"/>`
+            }).join('')
+
+            const yLabels = Array.from({ length: ticks - 1 }, (_, i) => {
+              const n = step * (i + 1)
+              return `<text x="54" y="${num(y(n) + 4)}">${n}</text>`
+            }).join('')
+
+            const xCount = 5
+            const stops = Array.from({ length: xCount }, (_, i) => new Date(t0 + ((t1 - t0) * i) / (xCount - 1)))
+            // "Feb 26" reads as the 26th of February, and the subtitle already carries
+            // the years, so month names alone are the default. A history shorter than
+            // five months puts two stops in one month and prints "Jun Jun Jul Jul Aug",
+            // so fall back to day precision when the labels collide rather than guess a
+            // span threshold. Either way a year appears only where one changes.
+            const name = (d) => MONTHS[d.getUTCMonth()]
+            const byMonth = stops.map(name)
+            const withDay = new Set(byMonth).size < byMonth.length
+            let lastYear = null
+            const xLabels = stops
+              .map((d, i) => {
+                const year = d.getUTCFullYear()
+                const base = withDay ? `${name(d)} ${d.getUTCDate()}` : name(d)
+                const label = lastYear !== null && year !== lastYear ? `${base}, ${year}` : base
+                lastYear = year
+                const anchor =
+                  i === 0 ? '' : i === xCount - 1 ? ' text-anchor="end"' : ' text-anchor="middle"'
+                return `<text x="${num(x(d.getTime()))}" y="432"${anchor}>${label}</text>`
+              })
+              .join('')
+
+            const [endX, endY] = points.at(-1)
+
+            return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Star history for ${esc(repo)}: ${total} stars, ${range(t0, t1)}">
+            <title>Star history for ${esc(repo)} — ${total} stars</title>
+            <defs>
+              <linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="${ink}" stop-opacity="0.14"/>
+                <stop offset="100%" stop-color="${ink}" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <rect x="0.5" y="0.5" width="${W - 1}" height="${H - 1}" rx="6" fill="${c.card}" stroke="${c.edge}"/>
+            <text x="48" y="44" fill="${c.ink}" font-family="${SANS}" font-size="20" font-weight="600">${esc(repo)}</text>
+            <text x="48" y="66" fill="${c.muted}" font-family="${SANS}" font-size="13">${range(t0, t1)}</text>
+            <text x="852" y="50" text-anchor="end" fill="${c.ink}" font-family="${SANS}" font-size="38" font-weight="600">${total}</text>
+            <text x="852" y="68" text-anchor="end" fill="${c.muted}" font-family="${MONO}" font-size="10" letter-spacing="0.16em">STARS</text>
+            <g stroke="${c.grid}">${gridLines}</g>
+            <line x1="${PLOT.l}" y1="${PLOT.base}" x2="${PLOT.r}" y2="${PLOT.base}" stroke="${c.axis}"/>
+            <path fill="url(#${id})" stroke="none" d="${areaPath}"/>
+            <path fill="none" stroke="${ink}" stroke-width="2" stroke-linejoin="round" d="${linePath}"/>
+            <circle cx="${num(endX)}" cy="${num(endY)}" r="4.5" fill="${ink}"/>
+            <g fill="${c.muted}" font-family="${MONO}" font-size="10">${xLabels}</g>
+            <g fill="${c.ylabel}" font-family="${MONO}" font-size="10" text-anchor="end">${yLabels}</g>
+          </svg>
+          `
+          }
+
+          // GitHub's theme toggle does not reach a media query inside an <img>-embedded
+          // SVG, but it does drive a <picture> element in the README. So ship the pair
+          // and let the markup choose, rather than one file that guesses.
+          const renderChart = (repo, stars, accent) => ({
+            light: draw(repo, stars, accent, 'light', 'sc-light'),
+            dark: draw(repo, stars, accent, 'dark', 'sc-dark'),
+          })
+
+          const darkAccent = (accent) => forDark(accent, DARK.card)
+          // END GENERATED
 
           // Write the path that was validated, not the raw input. In Actions
           // the working directory is the workspace so they agree, but a
           // check that doesn't govern the write is decoration.
+          const darkTarget = target.replace(/\.svg$/, '-dark.svg')
+          const { light, dark } = renderChart(repo, stars, accent)
           mkdirSync(dirname(target), { recursive: true })
-          writeFileSync(target, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Star history for ${repo}: ${stars.length} stars">
-            <title>Star history for ${repo}</title>
-            <style>
-              text { font: 12px ui-sans-serif, system-ui, sans-serif; fill: #8b949e; }
-              .title { font-size: 14px; font-weight: 600; fill: #e6edf3; }
-              .grid { stroke: #30363d; stroke-width: 1; }
-              .line { fill: none; stroke: #58a6ff; stroke-width: 2.5; stroke-linejoin: round; }
-              .area { fill: #58a6ff; opacity: 0.12; }
-              @media (prefers-color-scheme: light) {
-                text { fill: #57606a; } .title { fill: #1f2328; } .grid { stroke: #d0d7de; }
-              }
-            </style>
-            <rect width="${W}" height="${H}" fill="none"/>
-            <text x="${P.l}" y="20" class="title">${repo} &#183; ${stars.length} stars</text>
-            <g>
-              ${yLabels}
-            </g>
-            <path d="${area}" class="area"/>
-            <path d="${line}" class="line"/>
-            <g>
-              ${xLabels}
-            </g>
-          </svg>
-          `)
-          console.log(`${repo}: ${stars.length} stars, ${pages} API call(s) -> ${out}`)
+          writeFileSync(target, light)
+          writeFileSync(darkTarget, dark)
+          console.log(`${repo}: ${stars.length} stars, ${pages} API call(s) -> ${out} + dark`)
           GENERATOR
 
       - name: Commit the chart only when it actually changed
@@ -219,14 +479,24 @@ jobs:
           TARGET_BRANCH: ${{ inputs.branch }}
         run: |
           set -euo pipefail
+          DARK_PATH="${OUTPUT_PATH%.svg}-dark.svg"
           # --porcelain rather than `git diff`, which reports clean for a
           # path that is new and therefore still untracked on first run.
-          if [ -z "$(git status --porcelain -- "$OUTPUT_PATH")" ]; then
+          if [ -z "$(git status --porcelain -- "$OUTPUT_PATH" "$DARK_PATH")" ]; then
             echo "::notice::chart unchanged; nothing to commit"
             exit 0
           fi
+          # Both or neither. A README <picture> that gained a light chart and
+          # kept a stale dark one shows two different histories depending on
+          # who is looking, and neither is flagged as wrong.
+          for path in "$OUTPUT_PATH" "$DARK_PATH"; do
+            if [ ! -f "$path" ]; then
+              echo "::error::expected $path to exist after generation" >&2
+              exit 1
+            fi
+          done
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- "$OUTPUT_PATH"
+          git add -- "$OUTPUT_PATH" "$DARK_PATH"
           git commit -m "chore(docs): refresh the star-history chart"
           git push origin "HEAD:$TARGET_BRANCH"

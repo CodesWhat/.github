@@ -1,0 +1,92 @@
+name: Main Is Released
+
+# Asserts the one invariant behind "main is the released version, not the
+# newest work": every commit on main is a tagged release, so an untagged main
+# head is itself the alarm (REPOSITORY_ONBOARDING.md section 3).
+#
+# Callers declare their own triggers and pin this file by full commit SHA:
+#
+#   on:
+#     schedule: [{cron: "23 7 * * *"}]
+#     push:
+#       branches: [main]
+#     workflow_dispatch:
+#   permissions: {}
+#   jobs:
+#     released:
+#       uses: CodesWhat/.github/.github/workflows/main-is-released.yml@<full SHA>
+#
+# Continuously deployed repositories that never tag (a website, a meta repo)
+# should not call this at all rather than calling it with a carve-out input.
+# For them "main equals production" is enforced by the deploy, not by a tag.
+
+on:
+  workflow_call:
+    inputs:
+      allow-prerelease:
+        description: >
+          Accept a prerelease tag (-rc.N, -beta.N) as satisfying the invariant.
+          Defaults false: a release candidate on main is the exact drift this
+          check exists to catch.
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+jobs:
+  released:
+    name: Main Is Released
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read # Read main and its tags.
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+
+      - name: Check out main with tags
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          # Tags only travel with full history; a shallow clone would make
+          # describe fail for the wrong reason and read as real drift.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Assert main points at a release tag
+        env:
+          ALLOW_PRERELEASE: ${{ inputs.allow-prerelease }}
+        run: |
+          set -euo pipefail
+
+          # Prove the measurement can work before trusting its result. A repo
+          # with no tags at all reports the same "not tagged" as one that
+          # drifted, and those need different answers.
+          if [ -z "$(git tag)" ]; then
+            echo "::error::no tags in this repository, so the invariant cannot be evaluated; a repository that never releases should not call this workflow" >&2
+            exit 1
+          fi
+
+          if ! tag="$(git describe --exact-match --tags HEAD 2>/dev/null)"; then
+            latest="$(git describe --tags --abbrev=0 HEAD 2>/dev/null || echo '<none reachable>')"
+            ahead="$(git rev-list --count "${latest}..HEAD" 2>/dev/null || echo '?')"
+            echo "::error::main is not a tagged release. Newest reachable tag is ${latest}, and main is ${ahead} commit(s) past it. Either cut a release or move the unshipped work to a dev branch." >&2
+            exit 1
+          fi
+
+          case "$tag" in
+            *-*)
+              if [ "$ALLOW_PRERELEASE" != "true" ]; then
+                echo "::error::main points at prerelease ${tag}. Prereleases belong on the dev branch; main carries what users actually run." >&2
+                exit 1
+              fi
+              echo "::warning::main points at prerelease ${tag}, accepted because allow-prerelease is set" ;;
+          esac
+
+          echo "main is released at ${tag}"
