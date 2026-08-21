@@ -54,6 +54,7 @@ jobs:
           python3 .github/tests/quality_report_contract_test.py
           python3 .github/tests/reusable_ci_contract_test.py
           python3 .github/tests/starchart_refresh_contract_test.py
+          python3 .github/tests/main_is_released_contract_test.py
 
       - name: Lint Markdown
         run: |
