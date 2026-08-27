@@ -36,6 +36,17 @@
       ],
       "groupName": "non-major ({{manager}})",
       "groupSlug": "non-major-{{manager}}"
+    },
+    {
+      "description": "Move Vite, its official plugins, and Vitest as one unit. They peer-lock on each other, so a major that arrives alone has no resolvable outcome: @vitejs/plugin-react 6 peer-requires vite ^8, and a solo PR for it can never satisfy that against a pinned vite 6, no matter how often it rebases. This matches every update type, not just minor and patch, because the majors are exactly the ones that have to travel together.",
+      "matchPackageNames": [
+        "vite",
+        "@vitejs/**",
+        "vitest",
+        "@vitest/**"
+      ],
+      "groupName": "vite ecosystem",
+      "groupSlug": "vite-ecosystem"
     }
   ]
 }
