@@ -12,6 +12,9 @@
   "minimumReleaseAge": "14 days",
   "internalChecksFilter": "strict",
   "skipInstalls": false,
+  "postUpdateOptions": [
+    "gomodTidy"
+  ],
   "labels": [
     "dependencies"
   ],
