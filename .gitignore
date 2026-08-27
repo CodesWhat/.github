@@ -6,3 +6,6 @@ __pycache__/
 # Local planning/scratch workspace — not for commit
 .planning/
 profile/font_reference.svg
+
+# Agent worktrees / local agent state
+.claude/
