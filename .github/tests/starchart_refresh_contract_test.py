@@ -210,6 +210,69 @@ class StarchartRefreshContractTest(unittest.TestCase):
         # preference: wired that way it lints clean and never runs.
         self.assertIn("refreshes nothing", workflow)
 
+    def test_the_dispatch_snippet_carries_the_permission_it_needs(self):
+        """The snippet shipped without `actions: write` and portwing's first
+        real cut died on HTTP 403. Creating a dispatch is an Actions API
+        write, and `contents: write` does not imply it, so a reader who
+        copies the snippet and reasons about permissions from the commit it
+        performs gets it wrong. The scope has to be IN the snippet, not
+        described somewhere below it."""
+        workflow = self.read_workflow()
+
+        snippet = workflow.split("#   - name: Dispatch starchart refresh", 1)[1]
+        snippet = snippet.split("gh workflow run", 1)[0]
+        self.assertIn("actions: write", snippet)
+
+        # And the reason, so nobody trims it back out as redundant.
+        self.assertIn("does not imply", workflow)
+        self.assertIn("403", workflow)
+
+    def test_the_silent_dispatch_claim_is_recorded_as_refuted(self):
+        """`workflow_dispatch` being exempt from GITHUB_TOKEN suppression is
+        load-bearing for every cut-dispatched caller in the org. It was
+        reported as false on 2026-08-21. Leaving that unrecorded means the
+        next agent re-derives the doubt and rips out a working trigger, so
+        the evidence lives here."""
+        workflow = self.read_workflow()
+
+        self.assertIn("portkey-admin-mcp", workflow)
+        self.assertIn("github-actions[bot]", workflow)
+
+        # Naming the evidence is not the same as recording the verdict: a
+        # rewrite that keeps both source names and reverses the conclusion
+        # passes an evidence-only assertion. Flattened for the same reason
+        # the tag-trigger test flattens.
+        prose = " ".join(
+            line.lstrip("#").strip()
+            for line in workflow.split("\n")
+            if line.startswith("#")
+        )
+        self.assertIn("That does not hold:", prose)
+        self.assertIn(
+            "Suppression and a missing scope look similar and are not", prose
+        )
+        self.assertIn(
+            "exception of `workflow_dispatch` and `repository_dispatch`", prose
+        )
+
+    def test_the_tag_push_alternative_is_documented_with_its_own_trap(self):
+        """A repo that would rather not widen a PAT scope has a second
+        working trigger. Naming it without naming the assertion is how the
+        dead `release:` trigger survives next to a live tag trigger, since
+        the two read as interchangeable."""
+        workflow = self.read_workflow()
+
+        self.assertIn('tags: ["v*"]', workflow)
+        # Flattened: the comment wraps, and an assertion that a phrase sits
+        # on one line pins the line width rather than the claim.
+        prose = " ".join(
+            line.lstrip("#").strip()
+            for line in workflow.split("\n")
+            if line.startswith("#")
+        )
+        self.assertIn("assert BOTH that the tag trigger is present", prose)
+        self.assertIn("`release:` is absent", prose)
+
     def test_the_embedded_renderer_names_its_source(self):
         """The same renderer exists here and in ops. Hand-copying is how they
         drift, so the block is generated and says so."""

@@ -35,6 +35,8 @@ name: Star Chart Refresh
 # The release-cut workflow dispatches this one instead:
 #
 #   - name: Dispatch starchart refresh
+#     permissions:
+#       actions: write        # REQUIRED. contents: write does not imply it.
 #     env:
 #       GH_TOKEN: ${{ github.token }}
 #     run: gh workflow run starchart.yml --ref "$BRANCH"
@@ -45,9 +47,37 @@ name: Star Chart Refresh
 # `pull_request` with opened/synchronize/reopened creates a run in an
 # approval-required state rather than being suppressed outright — but they
 # are the two that fire unattended, which is what a release cut needs.
+#
 # The dispatch step must fail loudly rather than `|| true`: by the time it
 # runs the release is already published, so a swallowed error is the same
 # silent-success shape this whole workflow exists to remove.
+#
+# `actions: write` was missing from this snippet until 2026-08-21 and it is
+# the difference between a working cut and a dead one. Creating a workflow
+# dispatch is an Actions API write, so a job that can commit still cannot
+# dispatch. portwing v0.9.7 shipped this step as written and the first real
+# cut failed with `HTTP 403: Resource not accessible by personal access
+# token`, because it used RELEASE_PAT, which is Contents RW. A PAT needs the
+# scope too, not just the job.
+#
+# The failure is at least loud. It was reported as a silent no-op — the
+# dispatch succeeding and creating no run — which would have made
+# `${{ github.token }}` unusable here. That does not hold:
+# portkey-admin-mcp's `auto-tag.yml` dispatches `release.yml` with
+# `${{ github.token }}` and `permissions: {contents: write, actions: write}`,
+# and there are four `github-actions[bot]`-actored `workflow_dispatch` runs
+# on record between 2026-08-04 and 2026-08-10 with real success and failure
+# conclusions. Suppression and a missing scope look similar and are not: one
+# is fixed by adding the scope, the other cannot be fixed. GitHub's
+# events-that-trigger-workflows reference says it outright: "With the
+# exception of `workflow_dispatch` and `repository_dispatch`, other
+# `GITHUB_TOKEN`-triggered events do not create workflow runs at all."
+#
+# `on: push: tags: ["v*"]` is the other working trigger and needs no new
+# scope anywhere, because the cut already pushes the tag with a PAT so that
+# downstream workflows fire. portwing moved to it in #190. If you take that
+# route, assert BOTH that the tag trigger is present and that `release:` is
+# absent — they look interchangeable and only one of them runs.
 #
 # Prefer dispatching BEFORE the tag is cut where the flow allows it, so the
 # released README ships the chart it claims to. Dispatching after publish is
