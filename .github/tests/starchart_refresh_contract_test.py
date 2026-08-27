@@ -238,6 +238,23 @@ class StarchartRefreshContractTest(unittest.TestCase):
         self.assertIn("portkey-admin-mcp", workflow)
         self.assertIn("github-actions[bot]", workflow)
 
+        # Naming the evidence is not the same as recording the verdict: a
+        # rewrite that keeps both source names and reverses the conclusion
+        # passes an evidence-only assertion. Flattened for the same reason
+        # the tag-trigger test flattens.
+        prose = " ".join(
+            line.lstrip("#").strip()
+            for line in workflow.split("\n")
+            if line.startswith("#")
+        )
+        self.assertIn("That does not hold:", prose)
+        self.assertIn(
+            "Suppression and a missing scope look similar and are not", prose
+        )
+        self.assertIn(
+            "exception of `workflow_dispatch` and `repository_dispatch`", prose
+        )
+
     def test_the_tag_push_alternative_is_documented_with_its_own_trap(self):
         """A repo that would rather not widen a PAT scope has a second
         working trigger. Naming it without naming the assertion is how the
