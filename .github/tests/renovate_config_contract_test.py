@@ -41,6 +41,14 @@ class RenovateConfigContractTest(unittest.TestCase):
         self.assertEqual(["lockFileMaintenance"], matches[0].get("matchUpdateTypes"))
         self.assertIs(matches[0].get("enabled"), False)
 
+    def test_validation_runs_this_contract(self):
+        command = "python3 .github/tests/renovate_config_contract_test.py"
+        validation = (ROOT / "scripts/validate.sh").read_text()
+        workflow = (ROOT / ".github/workflows/standards-validation.yml").read_text()
+
+        self.assertEqual(1, validation.count(command))
+        self.assertEqual(1, workflow.count(command))
+
 
 if __name__ == "__main__":
     unittest.main()
