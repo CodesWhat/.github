@@ -28,6 +28,27 @@ class RenovateConfigContractTest(unittest.TestCase):
 
         self.assertIn("gomodTidy", config.get("postUpdateOptions", []))
 
+    def test_portwing_lock_maintenance_is_disabled_exactly(self):
+        config = self.read_config()
+
+        matches = [
+            rule
+            for rule in config.get("packageRules", [])
+            if rule.get("matchRepositories") == ["CodesWhat/portwing"]
+        ]
+
+        self.assertEqual(1, len(matches))
+        self.assertEqual(["lockFileMaintenance"], matches[0].get("matchUpdateTypes"))
+        self.assertIs(matches[0].get("enabled"), False)
+
+    def test_validation_runs_this_contract(self):
+        command = "python3 .github/tests/renovate_config_contract_test.py"
+        validation = (ROOT / "scripts/validate.sh").read_text()
+        workflow = (ROOT / ".github/workflows/standards-validation.yml").read_text()
+
+        self.assertEqual(1, validation.count(command))
+        self.assertEqual(1, workflow.count(command))
+
 
 if __name__ == "__main__":
     unittest.main()

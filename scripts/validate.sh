@@ -16,6 +16,7 @@ python3 .github/tests/greptile_summon_contract_test.py
 python3 .github/tests/greptile_config_contract_test.py
 python3 .github/tests/quality_report_contract_test.py
 python3 .github/tests/reusable_ci_contract_test.py
+python3 .github/tests/renovate_config_contract_test.py
 
 echo "==> compile python"
 python3 -m compileall -q .
