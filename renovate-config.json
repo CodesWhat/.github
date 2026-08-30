@@ -51,7 +51,7 @@
     {
       "description": "Disable npm lock maintenance for Portwing because native packages are platform-specific",
       "matchRepositories": [
-        "^CodesWhat/portwing$"
+        "CodesWhat/portwing"
       ],
       "matchUpdateTypes": [
         "lockFileMaintenance"

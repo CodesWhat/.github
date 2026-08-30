@@ -34,7 +34,7 @@ class RenovateConfigContractTest(unittest.TestCase):
         matches = [
             rule
             for rule in config.get("packageRules", [])
-            if rule.get("matchRepositories") == ["^CodesWhat/portwing$"]
+            if rule.get("matchRepositories") == ["CodesWhat/portwing"]
         ]
 
         self.assertEqual(1, len(matches))
