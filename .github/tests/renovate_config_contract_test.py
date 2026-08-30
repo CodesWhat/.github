@@ -38,6 +38,7 @@ class RenovateConfigContractTest(unittest.TestCase):
         ]
 
         self.assertEqual(1, len(matches))
+        self.assertEqual(["npm"], matches[0].get("matchManagers"))
         self.assertEqual(["lockFileMaintenance"], matches[0].get("matchUpdateTypes"))
         self.assertIs(matches[0].get("enabled"), False)
 

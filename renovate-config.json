@@ -53,6 +53,9 @@
       "matchRepositories": [
         "CodesWhat/portwing"
       ],
+      "matchManagers": [
+        "npm"
+      ],
       "matchUpdateTypes": [
         "lockFileMaintenance"
       ],
