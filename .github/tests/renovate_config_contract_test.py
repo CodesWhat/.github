@@ -28,6 +28,19 @@ class RenovateConfigContractTest(unittest.TestCase):
 
         self.assertIn("gomodTidy", config.get("postUpdateOptions", []))
 
+    def test_portwing_lock_maintenance_is_disabled_exactly(self):
+        config = self.read_config()
+
+        matches = [
+            rule
+            for rule in config.get("packageRules", [])
+            if rule.get("matchRepositories") == ["^CodesWhat/portwing$"]
+        ]
+
+        self.assertEqual(1, len(matches))
+        self.assertEqual(["lockFileMaintenance"], matches[0].get("matchUpdateTypes"))
+        self.assertIs(matches[0].get("enabled"), False)
+
 
 if __name__ == "__main__":
     unittest.main()

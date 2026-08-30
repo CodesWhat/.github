@@ -47,6 +47,16 @@
       ],
       "groupName": "vite ecosystem",
       "groupSlug": "vite-ecosystem"
+    },
+    {
+      "description": "Disable npm lock maintenance for Portwing because native packages are platform-specific",
+      "matchRepositories": [
+        "^CodesWhat/portwing$"
+      ],
+      "matchUpdateTypes": [
+        "lockFileMaintenance"
+      ],
+      "enabled": false
     }
   ]
 }
