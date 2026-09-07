@@ -40,6 +40,12 @@ repositories. Language-specific tests do not.
   Keep the catch-all even if narrower path rules are added later. All three
   accounts must remain owners of paths not matched by a narrower rule.
 
+- [ ] Add `.planning/` to the root `.gitignore` before anything is written
+  there. It is the only home for internal planning: roadmaps with internal
+  sequencing, competitor analysis, evals, mockups, handoff notes, archived
+  scratch. Nothing tracked may read from it, since a fresh clone has none of
+  it. Verify on the default branch, not with `git check-ignore`, which also
+  passes off a local exclude. Shape: `standards/planning.md` in `ops`.
 - [ ] Add a root `AGENTS.md`. Make it specific enough for a new contributor or
   coding agent to work without reverse-engineering the repository. Include the
   repository purpose and layout, exact build/test/lint commands, test
