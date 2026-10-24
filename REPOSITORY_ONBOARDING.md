@@ -294,41 +294,55 @@ Add these only when the behavior exists:
 
 ### Qlty
 
-Qlty appears in three places. The committed configuration and the repository-run
-gates are the alignment surface; the Qlty Cloud GitHub App is not.
+Public projects run routine quality checks in their own CI and useful local
+hooks. Keep Qlty CLI where it aggregates useful checks; effective native tools
+are also valid. Qlty Cloud supplies periodic reporting for existing dashboards
+and README metrics. A Cloud subscription is not needed for standalone CLI checks.
 
-- [ ] Commit `.qlty/qlty.toml` (`config_version = "0"`) with the organization
-  exclude baseline for generated, minified, and vendored paths. Drydock's file
-  is the reference posture and Portwing's is its Go-repo mirror; start from the
-  closer of the two. Do not copy the trivy plugin block from either reference:
-  trivy is deprecated in favor of Grype and its removal from both files is
-  tracked (drydock#753, portwing#135). The trufflehog plugin stays. The same
-  file drives the local CLI and Qlty Cloud, so changes to it are quality-gate
-  changes, not formatting.
-- [ ] Add the repository's Qlty gate script (`scripts/qlty-check-gate.sh all`)
-  to `pre-push`, fail-fast like every other local gate. An advisory smells
-  gate may run alongside it (Drydock pattern) but must not mask the gating
-  script's failure.
-- [ ] Gate Qlty in CI with the repository-run check, which needs no Qlty Cloud
-  account. Go repositories call `go-ci.yml` with `run-qlty` enabled,
-  `qlty-egress-policy: block`, and the proven endpoint allowlist — copy the
-  allowlist from Portwing's `ci-verify.yml` rather than re-deriving it, and do
-  not widen it. Node repositories run the SHA-pinned
-  `qltysh/qlty-action/install` plus the same gate script inside their own
-  workflow (Drydock pattern).
+- [ ] Record adoption work or a concrete applicability decision in the project's
+  private internal roadmap, with an owner, next action and checkable completion
+  conditions. Metadata-only repositories do not need a new scanner or dashboard
+  without a useful signal.
+- [ ] Where Qlty CLI is used, commit `.qlty/qlty.toml` with exclusions for
+  generated, minified and vendored paths. Review changes to shared CLI/Cloud
+  configuration as quality-gate changes. Preserve useful existing checks rather
+  than duplicating them through another tool.
+- [ ] Run the repository's quality gate in CI and useful local hooks. Advisory
+  duplication/complexity reports must not mask a gate failure. The shared
+  `go-ci.yml` supports `run-qlty`, which invokes `scripts/ci/go-qlty.sh` in the
+  caller repository. Keep the existing input default and check name; consumers
+  adopt changes through deliberate full-SHA pin updates. Node repositories can
+  use the SHA-pinned `qltysh/qlty-action/install` and their own gate script.
+- [ ] For existing Qlty Cloud maintainability reporting, set default-branch
+  Analysis Frequency to `1 month` in Project Settings > General. A manual scan
+  for a release or important change is acceptable within the usage budget. The
+  README maintainability grade represents the last completed scan and may be up
+  to a month behind the current default branch.
+- [ ] Avoid redundant hosted PR analysis after equivalent repository-owned CI
+  gates are verified. Verify the control stops analysis compute; turning off
+  comments or commit statuses alone does not establish that scans stop. Do not
+  weaken branch protection. Any replacement for a required gate goes through a
+  reviewed repository change and must be verified on the intended commit first.
+- [ ] Preserve useful coverage reporting, enforcement and badges, including
+  Codecov where already adopted. Each Qlty coverage upload costs one standard
+  analysis minute, including each separately uploaded server-merge part. Count
+  all workspace scans, uploads, runner multipliers and retries before claiming
+  the allowance is sufficient. Do not silently reduce PR coverage enforcement
+  to save reporting minutes.
+- [ ] Verify provider-side commit identity, actual analysis/coverage content and
+  badge freshness after changing settings. Classify quota failures separately
+  from real analysis/upload failures; a successful upload step or status alone
+  does not establish delivery or a completed scan.
 
-The Qlty Cloud GitHub App's statuses (`qlty check`, `qlty coverage`,
-`qlty coverage diff`) currently error organization-wide with out-of-minutes
-billing failures. Treat them as non-gating: never add them to required status
-checks, and do not chase these failures on PRs — the repository-run gate above
-is the enforced check. Coverage reporting is Codecov's job (decided
-2026-08-16): upload coverage to Codecov and carry its badge in the README.
-The Qlty Cloud App and its maintainability badge stay installed, but its
-coverage upload is not the coverage system and its checks stay non-required.
-Qlty Cloud enrollment and usage data are not an organization-wide
-prerequisite; do not make a Cloud upload or check required
-until the repository is enrolled and the check has proved stable. Local Qlty
-checks may still be stricter than this baseline.
+This operating policy retains useful Qlty CLI and periodic Cloud reporting. It
+does not introduce Sonar, require a paid upgrade, or automatically enroll every
+repository in a hosted service. The reusable workflows keep their existing
+interfaces and opt-in defaults; a caller's workflow does not configure Qlty
+Cloud's service-side scheduling.
+
+See Qlty's [analysis frequency](https://docs.qlty.sh/cloud/analysis-frequency),
+[analysis-minute accounting](https://docs.qlty.sh/cloud/billing/analysis-minutes),
+and [CLI versus Cloud](https://docs.qlty.sh/cli-vs-cloud) documentation.
 
 ## 5. Add delivery controls only for shipped artifacts
 
