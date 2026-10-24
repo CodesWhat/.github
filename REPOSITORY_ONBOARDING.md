@@ -107,27 +107,57 @@ repositories. Language-specific tests do not.
 - [ ] Confirm the Renovate GitHub app can access the repository. App access is
   managed at the organization level; do not widen a public-only installation
   to private repositories as an onboarding shortcut.
-- [ ] Add a root `.coderabbit.yaml` based on a current CodesWhat product, then
-  replace its product-specific tone, ignored paths, and path instructions.
-  Keep automatic review enabled. If PRs target a non-default integration
-  branch, include that branch under `reviews.auto_review.base_branches` and
-  request an explicit CodeRabbit review on the first PR to prove it works.
+- [ ] Where CodeRabbit is adopted, use a root `.coderabbit.yaml` appropriate to
+  the repository. Adopt intentional admission rather than automatically spending
+  review capacity on every in-progress push. Scope opt-in and incremental-review
+  changes through normal review, preserving required review evidence. Verify
+  non-default integration targets and stacked PR behavior before relying on them.
 - [ ] Confirm CodeRabbit can access the repository and posts an actual review
   comment. A green check without review output is not enough for this test.
-  Automated Pro-level reviews are free on public repositories only; on
-  private repositories the free plan rate-limits automated reviews, and they
-  have not fired for this organization in practice. Organization policy: on a
-  private repository skip both CodeRabbit items, use cross-account human
-  review, and add the config when the repository goes public.
+  Inspect the effective plan, selected-file limit and remaining capacity; public
+  repository visibility is not a promise of unlimited review. A quota-only green
+  check is not delivered review. Required non-author approval still applies, and
+  multiple accounts operated by one person are not independent human review.
 - [ ] Keep `greptile.json` at exactly `{"skipReview": "AUTOMATIC"}`
   (contract-tested in this repository) so Greptile never reviews unbidden. A
   repository that wants opt-in second opinions adds a label-gated caller
   workflow (`.github/workflows/greptile.yml`, firing on the `second-opinion`
   label) that calls this repository's `greptile-summon.yml` at a pinned full
   commit SHA. Pair the caller with a CodeRabbit `labeling_instructions` entry
-  for `second-opinion` and `auto_apply_labels` enabled, so applying the label
-  is criteria-driven rather than left to memory. The label is Greptile's only
-  trigger; never wire it to review every PR directly.
+  for `second-opinion` without automatic label application. Applying it is an
+  explicit, consequence-based admission decision with available capacity.
+  The label is Greptile's only automatic caller trigger; do not wire it to
+  review every PR directly. Inspect the provider's resolved configuration and
+  delivered review rather than assuming a legacy file or summon proves coverage.
+
+### Capacity and queued development
+
+Public projects use queue-first development, with adoption work recorded in
+their private internal roadmaps. Begin with one newly admitted hosted-review or
+heavy-CI candidate across public projects for a seven-day measured pilot. Finish
+existing in-flight work safely. A named coordinator records the candidate's
+owner, head/base, dependencies, local verification, services, review-pass count,
+blocked reason and next eligible time before new expensive work starts.
+
+Keep one active change per repo and at most one small dependent successor local.
+Pilot two-layer stacks for genuine dependencies; verify trunk, bot and merge
+compatibility. Draft and stacked PRs can still run CI and deploys. Keep diffs
+small, aiming around 25 changed files and within the actual reviewer limit;
+batching many unrelated items into one oversized PR is not admission control.
+
+Freeze pushes during review, then submit one batch of fixes per pass. Prioritize
+finishing admitted work over opening another PR. Keep the three-pass cap, all
+required checks and valid approvals. Record cooldowns and wait for recovery
+without repeated review summons, workflow reruns or indefinite polling. Review
+capacity after the pilot using actual service pools before expanding concurrency.
+
+Admit one new deployment-producing web candidate per shared deployment pool
+initially. Pilot ordinary dependency arrivals at one concurrent PR and one new
+PR/hour per repo, with staggered schedules or dashboard admission and urgent
+vulnerability handling retained. Retain the monthly Qlty reporting policy below.
+Provider settings, bot controls and required CI changes need scoped reviewed
+rollouts; documentation alone does not configure them. Metadata-only projects
+record applicable controls without installing irrelevant tools or paid services.
 
 ### Local gates
 
