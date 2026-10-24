@@ -159,6 +159,16 @@ Provider settings, bot controls and required CI changes need scoped reviewed
 rollouts; documentation alone does not configure them. Metadata-only projects
 record applicable controls without installing irrelevant tools or paid services.
 
+This shared repository pilots the controls in its own configuration, without
+changing the live Renovate preset for consumers. The coordinator approves an
+ordinary dependency update in the dashboard only after admission; the local
+wrapper permits one ordinary PR/branch and one new PR per hour. Urgent
+vulnerability handling remains separate. After admitting a stable review
+candidate, apply `review-ready` for its first CodeRabbit review. Later fix
+batches use an explicit review request; pushes do not automatically start
+another review. Verify the provider's resolved configuration and delivered head
+after landing these settings before claiming the pilot is operational.
+
 ### Local gates
 
 - [ ] Add a root `lefthook.yml` and document how contributors install Lefthook.
