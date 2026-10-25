@@ -17,17 +17,18 @@ python3 .github/tests/greptile_config_contract_test.py
 python3 .github/tests/quality_report_contract_test.py
 python3 .github/tests/reusable_ci_contract_test.py
 python3 .github/tests/renovate_config_contract_test.py
+python3 .github/tests/starchart_refresh_contract_test.py
+python3 .github/tests/main_is_released_contract_test.py
+python3 .github/tests/tracked_validation_test.py
 
 echo "==> compile python"
-python3 -m compileall -q .
+python3 scripts/validate_tracked_files.py python
 
 echo "==> parse yaml and json"
-ruby -e 'require "yaml"; Dir.glob("**/*.{yml,yaml}", File::FNM_DOTMATCH).sort.each { |path| YAML.parse_file(path) }'
-python3 -c 'import json; from pathlib import Path; [json.load(path.open()) for path in Path(".").rglob("*.json")]'
+python3 scripts/validate_tracked_files.py data
 
 echo "==> markdownlint"
-npx --yes markdownlint-cli2@0.23.2 "**/*.md" "#profile/README.md"
-npx --yes markdownlint-cli2@0.23.2 "profile/README.md" --config .github/markdownlint-profile.yaml
+python3 scripts/validate_tracked_files.py markdown
 
 echo "==> actionlint"
 if command -v actionlint >/dev/null 2>&1; then
