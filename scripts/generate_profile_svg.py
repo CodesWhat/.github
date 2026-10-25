@@ -4,7 +4,6 @@ Generate SVG files for CodesWhat? org profile README.
 Creates dark_mode.svg and light_mode.svg.
 """
 
-import re
 from pathlib import Path
 
 
@@ -92,7 +91,7 @@ def generate_svg(mode="dark"):
     ]
 
     # Wordmark auto-scales to fit the canvas, capped at the logo font size
-    wordmark_max_len = max(len(l.rstrip()) for l in wordmark_art)
+    wordmark_max_len = max(len(line.rstrip()) for line in wordmark_art)
     wordmark_font_size = round(min(font_size, (width - 40) / (0.6 * wordmark_max_len)), 1)
     wordmark_char_width = wordmark_font_size * 0.6
     wordmark_line_height = round(wordmark_font_size * 1.2)
@@ -145,7 +144,7 @@ text {{
 
     # Art lines have ragged lengths; center the block as a whole off the
     # widest line so every line shares one left edge
-    art_max_len = max(len(l) for l in logo_art)
+    art_max_len = max(len(line) for line in logo_art)
     art_start_x = (width - art_max_len * char_width) / 2
 
     solid_chars = set('█▓▌▐▄▀')

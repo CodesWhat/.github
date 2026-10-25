@@ -41,15 +41,15 @@ jobs:
         run: |
           python3 .github/tests/community_health_contract_test.py
           python3 .github/tests/greptile_summon_contract_test.py
+          python3 .github/tests/tracked_validation_test.py
 
       - name: Compile Python
-        run: python3 -m compileall -q .
+        run: python3 scripts/validate_tracked_files.py python
 
       - name: Parse YAML and JSON
         run: |
           set -euo pipefail
-          ruby -e 'require "yaml"; Dir.glob("**/*.{yml,yaml}", File::FNM_DOTMATCH).sort.each { |path| YAML.parse_file(path) }'
-          python3 -c 'import json; from pathlib import Path; [json.load(path.open()) for path in Path(".").rglob("*.json")]'
+          python3 scripts/validate_tracked_files.py data
           python3 .github/tests/greptile_config_contract_test.py
           python3 .github/tests/quality_report_contract_test.py
           python3 .github/tests/reusable_ci_contract_test.py
@@ -60,8 +60,7 @@ jobs:
       - name: Lint Markdown
         run: |
           set -euo pipefail
-          npx --yes markdownlint-cli2@0.23.2 "**/*.md" "#profile/README.md"
-          npx --yes markdownlint-cli2@0.23.2 "profile/README.md" --config .github/markdownlint-profile.yaml
+          python3 scripts/validate_tracked_files.py markdown
 
       - name: Validate workflows with actionlint
         run: |

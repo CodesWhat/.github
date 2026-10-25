@@ -1,10 +1,13 @@
-# Review feature PRs that follow the CodesWhat dev-branch flow. CodeRabbit
-# reviews the default branch without an explicit base-branch entry.
+# Request the first review only after the coordinator admits a stable candidate.
+# Later fix batches need an explicit review request; pushes do not spend capacity.
 language: en-US
 
 reviews:
   auto_review:
-    enabled: true
+    enabled: false
+    auto_incremental_review: false
     drafts: false
+    labels:
+      - "review-ready"
     base_branches:
       - "^dev/.*$"

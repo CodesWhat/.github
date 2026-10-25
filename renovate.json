@@ -1,4 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["local>CodesWhat/.github:renovate-config"]
+  "extends": ["local>CodesWhat/.github:renovate-config"],
+  "dependencyDashboardApproval": true,
+  "prConcurrentLimit": 1,
+  "prHourlyLimit": 1,
+  "branchConcurrentLimit": 1
 }
