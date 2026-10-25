@@ -30,9 +30,16 @@ contract tests that pin the shapes other repositories depend on.
   Verify promotions with tree equality
   (`git diff --quiet origin/main origin/dev/repository-standards`), never
   commit ancestry.
-- CodeRabbit auto-reviews PRs against `dev/*` branches only (scoped in
-  `.coderabbit.yaml`); summon it explicitly anywhere else and read its
-  inline comments before merging.
+- Admit new hosted review/heavy CI work through the shared capacity roster.
+  Keep preparation local while queued. After admission, add `review-ready` for
+  the first CodeRabbit review; request subsequent fix-batch reviews explicitly.
+  Freeze pushes while review runs, read its output and verify the covered head.
+  `.coderabbit.yaml` keeps default/dev targets but disables automatic review on
+  ordinary pushes. Required review and protection remain effective.
+- Approve ordinary dependency updates in the Renovate dashboard only after
+  admission. This repo's wrapper limits ordinary PRs/branches to one at a time
+  and one new PR per hour. The shared preset is unchanged; urgent vulnerability
+  updates keep their separate handling.
 - Commits are plain Conventional Commits, `<type>(scope): <description>`,
   no emoji, no AI attribution trailers.
 - Never weaken branch protection or rulesets to land a change.

@@ -107,27 +107,67 @@ repositories. Language-specific tests do not.
 - [ ] Confirm the Renovate GitHub app can access the repository. App access is
   managed at the organization level; do not widen a public-only installation
   to private repositories as an onboarding shortcut.
-- [ ] Add a root `.coderabbit.yaml` based on a current CodesWhat product, then
-  replace its product-specific tone, ignored paths, and path instructions.
-  Keep automatic review enabled. If PRs target a non-default integration
-  branch, include that branch under `reviews.auto_review.base_branches` and
-  request an explicit CodeRabbit review on the first PR to prove it works.
+- [ ] Where CodeRabbit is adopted, use a root `.coderabbit.yaml` appropriate to
+  the repository. Adopt intentional admission rather than automatically spending
+  review capacity on every in-progress push. Scope opt-in and incremental-review
+  changes through normal review, preserving required review evidence. Verify
+  non-default integration targets and stacked PR behavior before relying on them.
 - [ ] Confirm CodeRabbit can access the repository and posts an actual review
   comment. A green check without review output is not enough for this test.
-  Automated Pro-level reviews are free on public repositories only; on
-  private repositories the free plan rate-limits automated reviews, and they
-  have not fired for this organization in practice. Organization policy: on a
-  private repository skip both CodeRabbit items, use cross-account human
-  review, and add the config when the repository goes public.
+  Inspect the effective plan, selected-file limit and remaining capacity; public
+  repository visibility is not a promise of unlimited review. A quota-only green
+  check is not delivered review. Required non-author approval still applies, and
+  multiple accounts operated by one person are not independent human review.
 - [ ] Keep `greptile.json` at exactly `{"skipReview": "AUTOMATIC"}`
   (contract-tested in this repository) so Greptile never reviews unbidden. A
   repository that wants opt-in second opinions adds a label-gated caller
   workflow (`.github/workflows/greptile.yml`, firing on the `second-opinion`
   label) that calls this repository's `greptile-summon.yml` at a pinned full
   commit SHA. Pair the caller with a CodeRabbit `labeling_instructions` entry
-  for `second-opinion` and `auto_apply_labels` enabled, so applying the label
-  is criteria-driven rather than left to memory. The label is Greptile's only
-  trigger; never wire it to review every PR directly.
+  for `second-opinion` without automatic label application. Applying it is an
+  explicit, consequence-based admission decision with available capacity.
+  The label is Greptile's only automatic caller trigger; do not wire it to
+  review every PR directly. Inspect the provider's resolved configuration and
+  delivered review rather than assuming a legacy file or summon proves coverage.
+
+### Capacity and queued development
+
+Public projects use queue-first development, with adoption work recorded in
+their private internal roadmaps. Begin with one newly admitted hosted-review or
+heavy-CI candidate across public projects for a seven-day measured pilot. Finish
+existing in-flight work safely. A named coordinator records the candidate's
+owner, head/base, dependencies, local verification, services, review-pass count,
+blocked reason and next eligible time before new expensive work starts.
+
+Keep one active change per repo and at most one small dependent successor local.
+Pilot two-layer stacks for genuine dependencies; verify trunk, bot and merge
+compatibility. Draft and stacked PRs can still run CI and deploys. Keep diffs
+small, aiming around 25 changed files and within the actual reviewer limit;
+batching many unrelated items into one oversized PR is not admission control.
+
+Freeze pushes during review, then submit one batch of fixes per pass. Prioritize
+finishing admitted work over opening another PR. Keep the three-pass cap, all
+required checks and valid approvals. Record cooldowns and wait for recovery
+without repeated review summons, workflow reruns or indefinite polling. Review
+capacity after the pilot using actual service pools before expanding concurrency.
+
+Admit one new deployment-producing web candidate per shared deployment pool
+initially. Pilot ordinary dependency arrivals at one concurrent PR and one new
+PR/hour per repo, with staggered schedules or dashboard admission and urgent
+vulnerability handling retained. Retain the monthly Qlty reporting policy below.
+Provider settings, bot controls and required CI changes need scoped reviewed
+rollouts; documentation alone does not configure them. Metadata-only projects
+record applicable controls without installing irrelevant tools or paid services.
+
+This shared repository pilots the controls in its own configuration, without
+changing the live Renovate preset for consumers. The coordinator approves an
+ordinary dependency update in the dashboard only after admission; the local
+wrapper permits one ordinary PR/branch and one new PR per hour. Urgent
+vulnerability handling remains separate. After admitting a stable review
+candidate, apply `review-ready` for its first CodeRabbit review. Later fix
+batches use an explicit review request; pushes do not automatically start
+another review. Verify the provider's resolved configuration and delivered head
+after landing these settings before claiming the pilot is operational.
 
 ### Local gates
 
@@ -294,41 +334,55 @@ Add these only when the behavior exists:
 
 ### Qlty
 
-Qlty appears in three places. The committed configuration and the repository-run
-gates are the alignment surface; the Qlty Cloud GitHub App is not.
+Public projects run routine quality checks in their own CI and useful local
+hooks. Keep Qlty CLI where it aggregates useful checks; effective native tools
+are also valid. Qlty Cloud supplies periodic reporting for existing dashboards
+and README metrics. A Cloud subscription is not needed for standalone CLI checks.
 
-- [ ] Commit `.qlty/qlty.toml` (`config_version = "0"`) with the organization
-  exclude baseline for generated, minified, and vendored paths. Drydock's file
-  is the reference posture and Portwing's is its Go-repo mirror; start from the
-  closer of the two. Do not copy the trivy plugin block from either reference:
-  trivy is deprecated in favor of Grype and its removal from both files is
-  tracked (drydock#753, portwing#135). The trufflehog plugin stays. The same
-  file drives the local CLI and Qlty Cloud, so changes to it are quality-gate
-  changes, not formatting.
-- [ ] Add the repository's Qlty gate script (`scripts/qlty-check-gate.sh all`)
-  to `pre-push`, fail-fast like every other local gate. An advisory smells
-  gate may run alongside it (Drydock pattern) but must not mask the gating
-  script's failure.
-- [ ] Gate Qlty in CI with the repository-run check, which needs no Qlty Cloud
-  account. Go repositories call `go-ci.yml` with `run-qlty` enabled,
-  `qlty-egress-policy: block`, and the proven endpoint allowlist — copy the
-  allowlist from Portwing's `ci-verify.yml` rather than re-deriving it, and do
-  not widen it. Node repositories run the SHA-pinned
-  `qltysh/qlty-action/install` plus the same gate script inside their own
-  workflow (Drydock pattern).
+- [ ] Record adoption work or a concrete applicability decision in the project's
+  private internal roadmap, with an owner, next action and checkable completion
+  conditions. Metadata-only repositories do not need a new scanner or dashboard
+  without a useful signal.
+- [ ] Where Qlty CLI is used, commit `.qlty/qlty.toml` with exclusions for
+  generated, minified and vendored paths. Review changes to shared CLI/Cloud
+  configuration as quality-gate changes. Preserve useful existing checks rather
+  than duplicating them through another tool.
+- [ ] Run the repository's quality gate in CI and useful local hooks. Advisory
+  duplication/complexity reports must not mask a gate failure. The shared
+  `go-ci.yml` supports `run-qlty`, which invokes `scripts/ci/go-qlty.sh` in the
+  caller repository. Keep the existing input default and check name; consumers
+  adopt changes through deliberate full-SHA pin updates. Node repositories can
+  use the SHA-pinned `qltysh/qlty-action/install` and their own gate script.
+- [ ] For existing Qlty Cloud maintainability reporting, set default-branch
+  Analysis Frequency to `1 month` in Project Settings > General. A manual scan
+  for a release or important change is acceptable within the usage budget. The
+  README maintainability grade represents the last completed scan and may be up
+  to a month behind the current default branch.
+- [ ] Avoid redundant hosted PR analysis after equivalent repository-owned CI
+  gates are verified. Verify the control stops analysis compute; turning off
+  comments or commit statuses alone does not establish that scans stop. Do not
+  weaken branch protection. Any replacement for a required gate goes through a
+  reviewed repository change and must be verified on the intended commit first.
+- [ ] Preserve useful coverage reporting, enforcement and badges, including
+  Codecov where already adopted. Each Qlty coverage upload costs one standard
+  analysis minute, including each separately uploaded server-merge part. Count
+  all workspace scans, uploads, runner multipliers and retries before claiming
+  the allowance is sufficient. Do not silently reduce PR coverage enforcement
+  to save reporting minutes.
+- [ ] Verify provider-side commit identity, actual analysis/coverage content and
+  badge freshness after changing settings. Classify quota failures separately
+  from real analysis/upload failures; a successful upload step or status alone
+  does not establish delivery or a completed scan.
 
-The Qlty Cloud GitHub App's statuses (`qlty check`, `qlty coverage`,
-`qlty coverage diff`) currently error organization-wide with out-of-minutes
-billing failures. Treat them as non-gating: never add them to required status
-checks, and do not chase these failures on PRs — the repository-run gate above
-is the enforced check. Coverage reporting is Codecov's job (decided
-2026-08-16): upload coverage to Codecov and carry its badge in the README.
-The Qlty Cloud App and its maintainability badge stay installed, but its
-coverage upload is not the coverage system and its checks stay non-required.
-Qlty Cloud enrollment and usage data are not an organization-wide
-prerequisite; do not make a Cloud upload or check required
-until the repository is enrolled and the check has proved stable. Local Qlty
-checks may still be stricter than this baseline.
+This operating policy retains useful Qlty CLI and periodic Cloud reporting. It
+does not introduce Sonar, require a paid upgrade, or automatically enroll every
+repository in a hosted service. The reusable workflows keep their existing
+interfaces and opt-in defaults; a caller's workflow does not configure Qlty
+Cloud's service-side scheduling.
+
+See Qlty's [analysis frequency](https://docs.qlty.sh/cloud/analysis-frequency),
+[analysis-minute accounting](https://docs.qlty.sh/cloud/billing/analysis-minutes),
+and [CLI versus Cloud](https://docs.qlty.sh/cli-vs-cloud) documentation.
 
 ## 5. Add delivery controls only for shipped artifacts
 
