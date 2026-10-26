@@ -14,6 +14,8 @@ name: Main Is Released
 #   permissions: {}
 #   jobs:
 #     released:
+#       permissions:
+#         contents: read # A reusable workflow cannot raise its caller's grant.
 #       uses: CodesWhat/.github/.github/workflows/main-is-released.yml@<full SHA>
 #
 # Continuously deployed repositories that never tag (a website, a meta repo)

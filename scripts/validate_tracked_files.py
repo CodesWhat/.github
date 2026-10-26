@@ -7,18 +7,27 @@ import subprocess
 import sys
 
 
+def git_env():
+    """Environment without git's repo-local variables (GIT_DIR, GIT_INDEX_FILE, ...)."""
+    names = subprocess.check_output(
+        ["git", "rev-parse", "--local-env-vars"], text=True, env=os.environ.copy(),
+    ).split()
+    return {key: value for key, value in os.environ.items() if key not in names}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("kind", choices=("python", "data", "markdown"))
     kind = parser.parse_args().kind
+    env = git_env()
     root = subprocess.check_output(
-        ["git", "rev-parse", "--show-toplevel"], text=True,
+        ["git", "rev-parse", "--show-toplevel"], text=True, env=env,
     ).strip()
     os.chdir(root)
     # NUL delimiters preserve filenames containing spaces or newlines.
     paths = [
         Path(os.fsdecode(path))
-        for path in subprocess.check_output(["git", "ls-files", "-z"]).split(b"\0")
+        for path in subprocess.check_output(["git", "ls-files", "-z"], env=env).split(b"\0")
         if path
     ]
 
