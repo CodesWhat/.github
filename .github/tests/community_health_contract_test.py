@@ -183,6 +183,17 @@ class CommunityHealthContractTest(unittest.TestCase):
         ):
             self.assertIn(expected, workflow)
 
+    def test_local_validation_runs_every_ci_contract_suite(self):
+        pattern = r"python3 \.github/tests/([A-Za-z0-9_]+_test\.py)"
+        ci = set(re.findall(
+            pattern, self.read_text(".github/workflows/standards-validation.yml"),
+        ))
+        local = set(re.findall(pattern, self.read_text("scripts/validate.sh")))
+        present = {path.name for path in (ROOT / ".github/tests").glob("*_test.py")}
+
+        self.assertEqual(ci, local)
+        self.assertEqual(present, ci)
+
     def test_zizmor_action_owns_its_supported_cli_version(self):
         workflow = self.read_text(".github/workflows/standards-validation.yml")
         zizmor_step = workflow.split(
