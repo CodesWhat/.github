@@ -136,7 +136,7 @@ class CommunityHealthContractTest(unittest.TestCase):
         self.assertIn("concurrency:", workflow)
         self.assertIn("group: standards-validation-", workflow)
         self.assertIn("cancel-in-progress: true", workflow)
-        self.assertIn("runs-on: ubuntu-24.04", workflow)
+        self.assertIn("runs-on: ubuntu-26.04", workflow)
         self.assertNotIn("matrix:", workflow)
         self.assertNotIn("continue-on-error:", workflow)
         self.assertNotIn("\n    if:", workflow)

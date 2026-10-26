@@ -14,7 +14,7 @@ class MainIsReleasedContractTest(unittest.TestCase):
         for expected in (
             "  workflow_call:\n",
             "permissions: {}",
-            "    runs-on: ubuntu-24.04",
+            "    runs-on: ubuntu-26.04",
             "uses: step-security/harden-runner@",
             "egress-policy: block",
             "github.com:443",
