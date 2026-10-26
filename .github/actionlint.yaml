@@ -1,0 +1,6 @@
+# actionlint 1.7.12 predates GitHub's ubuntu-26.04 hosted runner label, which
+# went GA on 2026-09-17. Declare it here so actionlint doesn't flag it, and
+# delete this file once an actionlint release knows the label.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04

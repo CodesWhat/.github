@@ -211,6 +211,13 @@ class CommunityHealthContractTest(unittest.TestCase):
         self.assertEqual(2, markdown_config.count(": false"))
         self.assertFalse((ROOT / ".github/zizmor.yml").exists())
 
+        # actionlint config may only declare runner labels actionlint doesn't
+        # know yet; it must never ignore findings.
+        actionlint_config = self.read_text(".github/actionlint.yaml")
+        self.assertNotIn("ignore", actionlint_config)
+        self.assertNotIn("paths:", actionlint_config)
+        self.assertIn("    - ubuntu-26.04\n", actionlint_config)
+
     def test_profile_generator_has_one_canonical_location(self):
         self.assertFalse((ROOT / "generate_svg.py").exists())
         self.assertTrue((ROOT / "scripts/generate_profile_svg.py").is_file())
