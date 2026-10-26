@@ -136,7 +136,7 @@ class CommunityHealthContractTest(unittest.TestCase):
         self.assertIn("concurrency:", workflow)
         self.assertIn("group: standards-validation-", workflow)
         self.assertIn("cancel-in-progress: true", workflow)
-        self.assertIn("runs-on: ubuntu-24.04", workflow)
+        self.assertIn("runs-on: ubuntu-26.04", workflow)
         self.assertNotIn("matrix:", workflow)
         self.assertNotIn("continue-on-error:", workflow)
         self.assertNotIn("\n    if:", workflow)
@@ -210,6 +210,18 @@ class CommunityHealthContractTest(unittest.TestCase):
         self.assertNotIn("ignores:", markdown_config)
         self.assertEqual(2, markdown_config.count(": false"))
         self.assertFalse((ROOT / ".github/zizmor.yml").exists())
+
+        # actionlint config may only declare the hosted runner label actionlint
+        # doesn't know yet. Anything else, including ignores or a wildcard
+        # label, would suppress real findings.
+        actionlint_config = [
+            line for line in self.read_text(".github/actionlint.yaml").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        self.assertEqual(
+            ["self-hosted-runner:", "  labels:", "    - ubuntu-26.04"],
+            actionlint_config,
+        )
 
     def test_profile_generator_has_one_canonical_location(self):
         self.assertFalse((ROOT / "generate_svg.py").exists())

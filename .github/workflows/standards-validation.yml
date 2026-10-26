@@ -15,7 +15,7 @@ concurrency:
 jobs:
   validation:
     name: Standards Validation
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       actions: read  # Read workflow metadata
@@ -79,7 +79,7 @@ jobs:
 
   codeql:
     name: CodeQL
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       actions: read  # Read workflow metadata

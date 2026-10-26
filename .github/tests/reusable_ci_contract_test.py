@@ -211,7 +211,7 @@ class ReusableCIContractTest(unittest.TestCase):
         )
 
         for workflow in (go, node, self.read_workflow(WORKFLOWS["release"])):
-            self.assertIn("runs-on: ubuntu-24.04", workflow)
+            self.assertIn("runs-on: ubuntu-26.04", workflow)
             for action in re.findall(r"^\s+uses: ([^\s#]+)", workflow, re.MULTILINE):
                 self.assertRegex(action, r"^[^@]+@[0-9a-f]{40}$")
             for run_block in re.findall(r"run: \|\n((?: {10}.*\n|\n)+)", workflow):
