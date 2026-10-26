@@ -43,8 +43,8 @@ contract tests that pin the shapes other repositories depend on.
   ordinary pushes. Required review and protection remain effective.
 - Approve ordinary dependency updates in the Renovate dashboard one at a time.
   This repo's wrapper targets `dev/repository-standards` and limits ordinary
-  PRs/branches to one at a time and one new PR per hour. The shared preset is unchanged; urgent vulnerability
-  updates keep their separate handling.
+  PRs/branches to one at a time and one new PR per hour. The shared preset is
+  unchanged; urgent vulnerability updates keep their separate handling.
 - Commits are plain Conventional Commits, `<type>(scope): <description>`,
   no emoji, no AI attribution trailers.
 - Never weaken branch protection or rulesets to land a change.

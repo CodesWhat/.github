@@ -109,16 +109,16 @@ repositories. Language-specific tests do not.
 
   A working Dependabot or equivalent setup is an accepted alternative.
 
-- [ ] With Renovate on a repository that uses an integration branch, add exactly one
-  `baseBranchPatterns` entry for the active branch. Rotate it when the next
+- [ ] With Renovate on a repository that uses an integration branch, add exactly
+  one `baseBranchPatterns` entry for the active branch. Rotate it when the next
   integration branch is cut. Do not use a pattern that matches old and current
   branches because Renovate will open a duplicate PR set against every match.
 - [ ] Add only repository-specific Renovate overrides that have a written
   reason. Keep lockfile updates enabled and verify dependency PRs contain the
   lockfile changes required by a clean install.
-- [ ] When using Renovate, confirm its GitHub app can access the repository. App access is
-  managed at the organization level; do not widen a public-only installation
-  to private repositories as an onboarding shortcut.
+- [ ] When using Renovate, confirm its GitHub app can access the repository. App
+  access is managed at the organization level; do not widen a public-only
+  installation to private repositories as an onboarding shortcut.
 - [ ] Where CodeRabbit is adopted, use a root `.coderabbit.yaml` appropriate to
   the repository. Adopt intentional admission rather than automatically spending
   review capacity on every in-progress push. Scope opt-in and incremental-review
@@ -186,10 +186,10 @@ script, is accepted when it covers the same checks.
   `<type>(scope): <description>`. Allowed types are `feat`, `fix`, `docs`,
   `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, and `revert`.
   Do not weaken or bypass an existing commit-message hook.
-- [ ] Make the pre-push check sequential and fail-fast. Start with a clean-tree check,
-  then run the same formatter/linter, tests, build, and workflow-security checks
-  that CI enforces. A missing optional local tool may be reported and left to
-  CI, but a tool that is installed must not have its failure swallowed.
+- [ ] Make the pre-push check sequential and fail-fast. Start with a clean-tree
+  check, then run the same formatter/linter, tests, build, and workflow-security
+  checks that CI enforces. A missing optional local tool may be reported and
+  left to CI, but a tool that is installed must not have its failure swallowed.
 - [ ] Add language formatters to `pre-commit` only when they can safely operate
   on staged files. Verify the hook does not rewrite unrelated work.
 
@@ -231,9 +231,9 @@ drifts, and an incorrect README is a defect in the released version like any
 other. Fix it on a hotfix branch and cut a patch release. For that to stay
 honest, a documentation-only release must skip artifact publication —
 GoReleaser, signing, deb/rpm, Homebrew, npm — or maintainers will route around
-the rule. Generated assets committed to the repository, such as a committed
-chart SVG, regenerate at the release cut rather than on a schedule that commits to
-a branch, so they cannot change underneath a tag.
+the rule. Generated assets committed to the repository, such as a chart
+SVG, regenerate at the release cut rather than on a schedule that commits to a
+branch, so they cannot change underneath a tag.
 
 Adopting this on a repository whose `main` is already ahead of its newest tag
 means cutting a release at the next appropriate boundary. Never move published
@@ -330,7 +330,7 @@ Add these only when the behavior exists:
     released:
       permissions:
         contents: read
-      uses: CodesWhat/.github/.github/workflows/main-is-released.yml@<full commit SHA>
+      uses: CodesWhat/.github/.github/workflows/main-is-released.yml@<SHA>
   ```
 
   It asserts the section 3 invariant: an
