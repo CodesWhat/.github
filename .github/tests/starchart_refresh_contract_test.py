@@ -24,7 +24,7 @@ class StarchartRefreshContractTest(unittest.TestCase):
             "      max-pages:\n",
             "        type: number\n",
             "permissions: {}",
-            "    runs-on: ubuntu-24.04",
+            "    runs-on: ubuntu-26.04",
             "    timeout-minutes: 10",
             "uses: step-security/harden-runner@",
             "egress-policy: block",

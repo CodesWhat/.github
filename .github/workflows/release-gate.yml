@@ -27,7 +27,7 @@ permissions: {}
 jobs:
   gate:
     name: Release Gate
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 360
     permissions:
       actions: read

@@ -19,7 +19,7 @@ class GreptileSummonContractTest(unittest.TestCase):
             "        type: string\n",
             "      focus:\n",
             "permissions: {}",
-            "    runs-on: ubuntu-24.04",
+            "    runs-on: ubuntu-26.04",
             "    timeout-minutes: 5",
             "      pull-requests: write",
             "uses: step-security/harden-runner@",
