@@ -10,14 +10,22 @@ This document defines the target state for a repository being onboarded. Its
 presence in the standards repository does not certify that an existing
 repository has already passed the checklist.
 
+Each item is either a requirement, which applies when its trigger does and
+protects a named outcome, or a recommended recipe. A repository that already
+meets the outcome another way keeps its choice: effective existing alternatives
+are accepted without a waiver. Established products keep their current release
+and verification contracts until a scoped change updates them.
+
 ## 1. Classify the repository
 
 - [ ] Record its purpose, owner, visibility, and lifecycle: public product,
   public infrastructure, permanently private, or pre-public.
-- [ ] Set `main` as the default branch and create one active development or
-  integration branch. Ordinary changes merge from a feature or fix branch into
-  that branch. `main` advances only through a reviewed PR from the active
-  branch, never from an independent commit or feature branch.
+- [ ] Set `main` as the default branch and record the repository's branch and
+  release model in `AGENTS.md`. Recommended recipe for a tagged product: one
+  active development or integration branch that ordinary changes merge into,
+  with `main` advancing only through a reviewed promotion PR. Trunk development
+  with immutable release tags, or a site that verifies its deployed commit, is
+  equally acceptable when it fits the artifact.
 - [ ] Decide whether it publishes any artifact: a binary, package, container,
   website, documentation site, Homebrew formula or cask, or GitHub release.
 - [ ] Inventory its languages, package managers, generated files, external
@@ -88,7 +96,9 @@ repositories. Language-specific tests do not.
 
 ### Dependency updates and automated review
 
-- [ ] Add `renovate.json` with the organization preset:
+- [ ] Give the repository an automated dependency-update path that includes
+  the lockfile changes. Recommended recipe: `renovate.json` with the
+  organization preset:
 
   ```json
   {
@@ -97,14 +107,16 @@ repositories. Language-specific tests do not.
   }
   ```
 
-- [ ] If the repository uses an integration branch, add exactly one
+  A working Dependabot or equivalent setup is an accepted alternative.
+
+- [ ] With Renovate on a repository that uses an integration branch, add exactly one
   `baseBranchPatterns` entry for the active branch. Rotate it when the next
   integration branch is cut. Do not use a pattern that matches old and current
   branches because Renovate will open a duplicate PR set against every match.
 - [ ] Add only repository-specific Renovate overrides that have a written
   reason. Keep lockfile updates enabled and verify dependency PRs contain the
   lockfile changes required by a clean install.
-- [ ] Confirm the Renovate GitHub app can access the repository. App access is
+- [ ] When using Renovate, confirm its GitHub app can access the repository. App access is
   managed at the organization level; do not widen a public-only installation
   to private repositories as an onboarding shortcut.
 - [ ] Where CodeRabbit is adopted, use a root `.coderabbit.yaml` appropriate to
@@ -130,77 +142,78 @@ repositories. Language-specific tests do not.
   review every PR directly. Inspect the provider's resolved configuration and
   delivered review rather than assuming a legacy file or summon proves coverage.
 
-### Capacity and queued development
+### Capacity and pacing
 
-Public projects use queue-first development, with adoption work recorded in
-their private internal roadmaps. Begin with one newly admitted hosted-review or
-heavy-CI candidate across public projects for a seven-day measured pilot. Finish
-existing in-flight work safely. A named coordinator records the candidate's
-owner, head/base, dependencies, local verification, services, review-pass count,
-blocked reason and next eligible time before new expensive work starts.
+There is no shared admission queue. Pace hosted review, heavy CI and
+deployments so one project does not starve the shared pools, and coordinate
+timing with the maintainer directly. Keep queued development in the project's
+private internal roadmap.
 
-Keep one active change per repo and at most one small dependent successor local.
-Pilot two-layer stacks for genuine dependencies; verify trunk, bot and merge
-compatibility. Draft and stacked PRs can still run CI and deploys. Keep diffs
-small, aiming around 25 changed files and within the actual reviewer limit;
-batching many unrelated items into one oversized PR is not admission control.
+Keep one active change per repository and at most one small dependent successor
+local. Keep diffs small, aiming around 25 changed files and within the actual
+reviewer limit; batching many unrelated items into one oversized PR is not
+pacing.
 
-Freeze pushes during review, then submit one batch of fixes per pass. Prioritize
-finishing admitted work over opening another PR. Keep the three-pass cap, all
-required checks and valid approvals. Record cooldowns and wait for recovery
-without repeated review summons, workflow reruns or indefinite polling. Review
-capacity after the pilot using actual service pools before expanding concurrency.
+Freeze pushes during review, then submit one batch of fixes per pass. Finish
+open work before opening another PR. Keep the three-pass cap, all required
+checks and valid approvals. When a provider is in cooldown, wait for recovery
+without repeated review summons, workflow reruns or indefinite polling.
 
-Admit one new deployment-producing web candidate per shared deployment pool
-initially. Pilot ordinary dependency arrivals at one concurrent PR and one new
-PR/hour per repo, with staggered schedules or dashboard admission and urgent
-vulnerability handling retained. Retain the monthly Qlty reporting policy below.
-Provider settings, bot controls and required CI changes need scoped reviewed
-rollouts; documentation alone does not configure them. Metadata-only projects
-record applicable controls without installing irrelevant tools or paid services.
+Ordinary dependency arrivals run at one concurrent PR and one new PR per hour
+per repository, through staggered schedules or dashboard approval, with urgent
+vulnerability handling kept separate. Provider settings, bot controls and
+required CI changes need scoped reviewed rollouts; documentation alone does not
+configure them. Metadata-only projects record applicable controls without
+installing irrelevant tools or paid services. The Qlty reporting policy is in
+section 4.
 
-This shared repository pilots the controls in its own configuration, without
-changing the live Renovate preset for consumers. The coordinator approves an
-ordinary dependency update in the dashboard only after admission; the local
-wrapper permits one ordinary PR/branch and one new PR per hour. Urgent
-vulnerability handling remains separate. After admitting a stable review
-candidate, apply `review-ready` for its first CodeRabbit review. Later fix
-batches use an explicit review request; pushes do not automatically start
-another review. Verify the provider's resolved configuration and delivered head
-after landing these settings before claiming the pilot is operational.
+This repository runs those controls in its own configuration without changing
+the Renovate preset that consumers extend. Its wrapper targets the integration
+branch and allows one ordinary PR and branch at a time and one new PR per hour,
+and dashboard updates are approved one at a time. Apply `review-ready` for a
+PR's first CodeRabbit review. Later fix batches use an explicit review request,
+because pushes do not start another review.
 
 ### Local gates
 
-- [ ] Add a root `lefthook.yml` and document how contributors install Lefthook.
-- [ ] Add a `commit-msg` command that enforces plain Conventional Commits:
+Run the checks CI enforces locally before pushing. Recommended recipe: a root
+`lefthook.yml` with the hooks below, with install steps in `AGENTS.md`. An
+existing hook runner such as Husky or pre-commit, or a documented validation
+script, is accepted when it covers the same checks.
+
+- [ ] Enforce the repository's commit convention at `commit-msg`. Without an
+  existing convention, use plain Conventional Commits:
   `<type>(scope): <description>`. Allowed types are `feat`, `fix`, `docs`,
   `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, and `revert`.
   Do not weaken or bypass an existing commit-message hook.
-- [ ] Make `pre-push` sequential and fail-fast. Start with a clean-tree check,
+- [ ] Make the pre-push check sequential and fail-fast. Start with a clean-tree check,
   then run the same formatter/linter, tests, build, and workflow-security checks
   that CI enforces. A missing optional local tool may be reported and left to
   CI, but a tool that is installed must not have its failure swallowed.
 - [ ] Add language formatters to `pre-commit` only when they can safely operate
   on staged files. Verify the hook does not rewrite unrelated work.
 
-Qlty spans local and CI gates; the full baseline, including why Qlty Cloud
-checks stay non-required, is in the Qlty subsection of section 4.
+Qlty is optional. Its recommended use across local and CI gates, including why
+Qlty Cloud checks stay non-required, is in the Qlty subsection of section 4.
 
 ## 3. Protect `main`
 
-`main` is the released version, not the newest work. It always equals what
-users currently have: the GA tag on a versioned product, production on a
-continuously deployed site. It is never the GA tag plus merged work that has
-not shipped. The next version lives on its own branch, `dev/vX.Y`, which is
-the integration target for every feature pull request, and prereleases are
-tagged there rather than on `main`.
+The recommended model for a tagged product makes `main` the released
+version, not the newest work. It always equals what users currently have, the
+GA tag, and is never the GA tag plus merged work that has not shipped. In that
+recipe the next version lives on its own branch, `dev/vX.Y`, which is the
+integration target for feature pull requests, and prereleases are tagged there
+rather than on `main`. A continuously deployed site verifies its deployed commit
+instead, and a trunk model identifies releases through immutable tags and
+artifacts. The branch ruleset below applies to every model.
 
 The reason is measurement accuracy rather than tidiness. OpenSSF Scorecard,
 CodeQL default-branch analysis, Dependabot alerts, README badges, and every
 published vulnerability report describe the default branch and nothing else.
 Unshipped work on `main` makes all of them describe software no user runs.
 
-One invariant covers it, and it is mechanical rather than a judgement call:
+For a released-`main` repository, one invariant covers it, and it is
+mechanical rather than a judgement call:
 
 ```sh
 git describe --exact-match origin/main
@@ -218,13 +231,13 @@ drifts, and an incorrect README is a defect in the released version like any
 other. Fix it on a hotfix branch and cut a patch release. For that to stay
 honest, a documentation-only release must skip artifact publication —
 GoReleaser, signing, deb/rpm, Homebrew, npm — or maintainers will route around
-the rule. Generated assets committed to the repository, such as a star-history
-chart, regenerate at the release cut rather than on a schedule that commits to
+the rule. Generated assets committed to the repository, such as a committed
+chart SVG, regenerate at the release cut rather than on a schedule that commits to
 a branch, so they cannot change underneath a tag.
 
 Adopting this on a repository whose `main` is already ahead of its newest tag
-means either cutting a release or resetting `main` to the last released tag.
-That is the maintainer's decision, because it changes what every user sees.
+means cutting a release at the next appropriate boundary. Never move published
+history backward to adopt the model.
 
 Create an active branch ruleset named `Main branch protection`, targeting only
 the default branch. Its baseline is:
@@ -299,38 +312,45 @@ Add these only when the behavior exists:
   with a clear enforced or advisory threshold.
 - [ ] Translation synchronization only for a repository with a translation
   source of truth and configured provider credentials.
-- [ ] Release-invariant enforcement for a repository that tags releases. Call
-  this repository's `main-is-released.yml` at a pinned full commit SHA from a
-  thin caller on `schedule` plus `push` to `main` plus `workflow_dispatch`. The
-  called workflow declares `contents: read` itself, and a reusable workflow can
-  only narrow what the caller grants, so the caller needs no `permissions`
-  block beyond the top-level `permissions: {}` — a job-level grant would only
-  widen the ceiling it runs under. It asserts the section 3 invariant: an
+- [ ] Release-invariant enforcement for a repository that defines `main` as its
+  tagged release. Call this repository's `main-is-released.yml` at a pinned
+  full commit SHA from a thin caller on `schedule` plus `push` to `main` plus
+  `workflow_dispatch`. A reusable workflow cannot raise the permissions its
+  caller grants, so a caller with top-level `permissions: {}` must grant
+  `contents: read` on the calling job:
+
+  ```yaml
+  on:
+    schedule: [{cron: "23 7 * * *"}]
+    push:
+      branches: [main]
+    workflow_dispatch:
+  permissions: {}
+  jobs:
+    released:
+      permissions:
+        contents: read
+      uses: CodesWhat/.github/.github/workflows/main-is-released.yml@<full commit SHA>
+  ```
+
+  It asserts the section 3 invariant: an
   untagged `main` head fails, and so does a prerelease tag unless the caller
   passes `allow-prerelease: true`. A repository that never tags, such as a
   continuously deployed site or a meta repository, should not call this at all
   rather than call it with a carve-out; for those, "`main` equals production"
   is enforced by the deploy.
-- [ ] Star-history chart refresh for a public repository whose README carries a
-  Star History section. Call this repository's `starchart-refresh.yml` at a
-  pinned full commit SHA from a thin caller on `release: [published]` plus
-  `workflow_dispatch`, granting the job `contents: write` and passing the
-  active integration branch as `branch` and the repository's logo colour as
-  `accent`. It regenerates a first-party SVG pair from GitHub's stargazer
-  timestamps and commits only when the chart actually changed. The trigger is
-  the release cut rather than a schedule because a committed artifact
-  refreshed on a cron mutates underneath a tag, which section 3 forbids. The
-  chart is a committed artifact rather than a live route or a third-party
-  embed on purpose: it needs no secret and makes no request at render time, so
-  a stale one is visible and a missing one is a visibly broken image, where a
-  route that loses its credential serves a plausible placeholder at HTTP 200
-  indefinitely. Two files ship, `star-history.svg` and `star-history-dark.svg`,
-  because GitHub's theme toggle does not reach a media query inside an
-  `<img>`-embedded SVG but does drive a `<picture>` element in the README, so
-  the markup chooses and the `<img>` stays the fallback for anything that does
-  not understand `<picture>`. Do not embed `star-history.com` or
-  `warpchart.dev`; both are retired organization-wide, and adopting the chart
-  means removing what it replaced in the same change.
+- [ ] A star chart is optional. A public repository that shows one uses Star
+  History: open it for the actual owner and repository, copy its current README
+  snippet, and verify the rendered README in both themes while signed out.
+  Generate a fresh snippet for that repository and never paste a raw GitHub
+  credential into the README. A hosted chart is live presentation rather than
+  a release artifact, so it needs no refresh workflow.
+- [ ] A repository that still commits a first-party star-history SVG pair keeps
+  its pinned `starchart-refresh.yml` caller, on `release: [published]` plus
+  `workflow_dispatch` with the job granted `contents: write`, until it moves to
+  Star History through its own reviewed change. Trace other consumers of the
+  committed SVGs, such as a website, before removing them or the caller. The
+  reusable workflow keeps its interface for existing pins.
 
 ### Qlty
 
@@ -419,10 +439,11 @@ and [CLI versus Cloud](https://docs.qlty.sh/cli-vs-cloud) documentation.
   Actions workflows are present.
 - [ ] Install dependencies from a clean checkout, run the full local hook
   pipeline, and run the production build.
-- [ ] Open a feature-to-active-branch PR, then an active-branch-to-`main` PR.
-  Use the branch selected in section 1. Wait for all CI and an explicit
-  CodeRabbit review on both, address every actionable finding, and obtain the
-  required non-author and code-owner approvals.
+- [ ] Open a feature PR into the repository's integration target and, when it
+  promotes to `main`, a promotion PR. Use the model recorded in section 1. Wait
+  for all CI and the delivered review the repository requires on each, address
+  every actionable finding, and obtain the required non-author and code-owner
+  approvals.
 - [ ] Confirm the PR cannot merge while a required job is pending or failing.
   Never weaken branch protection to perform this test or to clear
   `REVIEW_REQUIRED`.

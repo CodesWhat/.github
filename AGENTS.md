@@ -25,20 +25,25 @@ contract tests that pin the shapes other repositories depend on.
   with safe defaults, never repurpose an existing input, and let consumers
   adopt by rolling their pin deliberately.
 - PRs target `dev/repository-standards`. `main` advances only through
-  promotion PRs. Reconcile before promoting:
+  promotion PRs. Before reconciling, account for released content:
+  `git log --oneline origin/dev/repository-standards..origin/main` should list
+  only the previous promotion's squash commit. Any other commit is content that
+  landed on `main` directly; forward-port it to dev through a normal reviewed PR
+  first, because the `ours` merge keeps dev's tree and silently drops it. Then
+  reconcile:
   `git merge -s ours origin/main -m "chore(sync): reconcile main before promotion"`.
   Verify promotions with tree equality
   (`git diff --quiet origin/main origin/dev/repository-standards`), never
   commit ancestry.
-- Admit new hosted review/heavy CI work through the shared capacity roster.
-  Keep preparation local while queued. After admission, add `review-ready` for
-  the first CodeRabbit review; request subsequent fix-batch reviews explicitly.
+- There is no shared admission queue; pace hosted review and heavy CI with
+  the maintainer directly. Add `review-ready` for a PR's first CodeRabbit
+  review and request subsequent fix-batch reviews explicitly.
   Freeze pushes while review runs, read its output and verify the covered head.
   `.coderabbit.yaml` keeps default/dev targets but disables automatic review on
   ordinary pushes. Required review and protection remain effective.
-- Approve ordinary dependency updates in the Renovate dashboard only after
-  admission. This repo's wrapper limits ordinary PRs/branches to one at a time
-  and one new PR per hour. The shared preset is unchanged; urgent vulnerability
+- Approve ordinary dependency updates in the Renovate dashboard one at a time.
+  This repo's wrapper targets `dev/repository-standards` and limits ordinary
+  PRs/branches to one at a time and one new PR per hour. The shared preset is unchanged; urgent vulnerability
   updates keep their separate handling.
 - Commits are plain Conventional Commits, `<type>(scope): <description>`,
   no emoji, no AI attribution trailers.
