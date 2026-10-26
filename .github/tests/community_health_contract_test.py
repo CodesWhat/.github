@@ -184,7 +184,7 @@ class CommunityHealthContractTest(unittest.TestCase):
             self.assertIn(expected, workflow)
 
     def test_local_validation_runs_every_ci_contract_suite(self):
-        pattern = r"python3 \.github/tests/([A-Za-z0-9_]+_test\.py)"
+        pattern = r"(?m)^[ \t]*python3[ \t]+\.github/tests/([A-Za-z0-9_]+_test\.py)[ \t]*$"
         ci = set(re.findall(
             pattern, self.read_text(".github/workflows/standards-validation.yml"),
         ))
