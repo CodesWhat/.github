@@ -211,12 +211,17 @@ class CommunityHealthContractTest(unittest.TestCase):
         self.assertEqual(2, markdown_config.count(": false"))
         self.assertFalse((ROOT / ".github/zizmor.yml").exists())
 
-        # actionlint config may only declare runner labels actionlint doesn't
-        # know yet; it must never ignore findings.
-        actionlint_config = self.read_text(".github/actionlint.yaml")
-        self.assertNotIn("ignore", actionlint_config)
-        self.assertNotIn("paths:", actionlint_config)
-        self.assertIn("    - ubuntu-26.04\n", actionlint_config)
+        # actionlint config may only declare the hosted runner label actionlint
+        # doesn't know yet. Anything else, including ignores or a wildcard
+        # label, would suppress real findings.
+        actionlint_config = [
+            line for line in self.read_text(".github/actionlint.yaml").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        self.assertEqual(
+            ["self-hosted-runner:", "  labels:", "    - ubuntu-26.04"],
+            actionlint_config,
+        )
 
     def test_profile_generator_has_one_canonical_location(self):
         self.assertFalse((ROOT / "generate_svg.py").exists())
