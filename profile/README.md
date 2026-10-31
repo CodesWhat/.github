@@ -4,3 +4,6 @@
     <img alt="CodesWhat? GitHub Profile" src="https://raw.githubusercontent.com/CodesWhat/.github/main/profile/light_mode.svg">
   </picture>
 </a>
+
+[CodesWhat](https://codeswhat.com): small, sharp tools from one developer
+and a lot of agents.
