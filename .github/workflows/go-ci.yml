@@ -109,7 +109,10 @@ on:
         type: string
         default: audit
       workflow-security-allowed-endpoints:
-        description: Harden Runner allowlist for workflow security
+        description: >-
+          Harden Runner allowlist for workflow security. zizmor-action installs
+          zizmor from PyPI, so block mode must allow pypi.org:443 and
+          files.pythonhosted.org:443.
         required: false
         type: string
         default: ""
