@@ -42,6 +42,7 @@ jobs:
           python3 .github/tests/community_health_contract_test.py
           python3 .github/tests/greptile_summon_contract_test.py
           python3 .github/tests/tracked_validation_test.py
+          python3 .github/tests/test_wiring_contract_test.py
 
       - name: Compile Python
         run: python3 scripts/validate_tracked_files.py python
@@ -65,7 +66,10 @@ jobs:
       - name: Validate workflows with actionlint
         run: |
           set -euo pipefail
-          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/914e7df21a07ef503a81201c76d2b11c789d3fca/scripts/download-actionlint.bash) 1.7.12 "$RUNNER_TEMP"
+          archive="$RUNNER_TEMP/actionlint_1.7.12_linux_amd64.tar.gz"
+          curl -fsSL -o "$archive" https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $archive" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -color
 
       - name: Validate workflows with zizmor
