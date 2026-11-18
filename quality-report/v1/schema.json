@@ -355,6 +355,48 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "fast-check"
+              }
+            },
+            "required": [
+              "tool"
+            ]
+          },
+          "then": {
+            "properties": {
+              "target": {
+                "if": {
+                  "properties": {
+                    "outcome": {
+                      "enum": [
+                        "failed",
+                        "crashed",
+                        "flaked"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "outcome"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "reproduction": {
+                      "required": [
+                        "seed",
+                        "path"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -696,6 +738,50 @@
                     "type": "null"
                   }
                 ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "fast-check"
+              }
+            },
+            "required": [
+              "tool"
+            ]
+          },
+          "then": {
+            "properties": {
+              "targets": {
+                "items": {
+                  "if": {
+                    "properties": {
+                      "outcome": {
+                        "enum": [
+                          "failed",
+                          "crashed",
+                          "flaked"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "outcome"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "reproduction": {
+                        "required": [
+                          "seed",
+                          "path"
+                        ]
+                      }
+                    }
+                  }
+                }
               }
             }
           }

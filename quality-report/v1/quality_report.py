@@ -78,7 +78,7 @@ def load_json_text(text, source):
             object_pairs_hook=reject_duplicate_keys,
             parse_constant=reject_constant,
         )
-    except (json.JSONDecodeError, ContractError) as error:
+    except (ValueError, ContractError) as error:
         raise ContractError("{0}: invalid JSON: {1}".format(source, error)) from error
 
 
@@ -139,7 +139,11 @@ def require_integer(value, path, *, minimum=0):
 def require_number(value, path, *, minimum=0):
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ContractError("{0}: expected number >= {1}".format(path, minimum))
-    if not math.isfinite(value) or value < minimum:
+    try:
+        valid = math.isfinite(value) and value >= minimum
+    except OverflowError:
+        valid = False
+    if not valid:
         raise ContractError("{0}: expected finite number >= {1}".format(path, minimum))
     return value
 
@@ -223,7 +227,7 @@ def validate_reproduction(value, path):
         require_string(item, "{0}.{1}".format(path, field))
 
 
-def validate_target(target, track, path):
+def validate_target(target, track, path, tool=None):
     require_object(
         target,
         path,
@@ -272,6 +276,16 @@ def validate_target(target, track, path):
                 )
         if "reproduction" in target:
             validate_reproduction(target["reproduction"], path + ".reproduction")
+            if (
+                tool == "fast-check"
+                and outcome in {"failed", "crashed", "flaked"}
+                and not {"seed", "path"} <= set(target["reproduction"])
+            ):
+                raise ContractError(
+                    "{0}.reproduction: fast-check failures require seed and path".format(
+                        path
+                    )
+                )
 
 
 def validate_target_document(document, path="$"):
@@ -290,7 +304,7 @@ def validate_target_document(document, path="$"):
     )
     if tool not in TRACK_TOOLS[track]:
         raise ContractError("{0}.tool: {1} is not a {2} tool".format(path, tool, track))
-    validate_target(document["target"], track, path + ".target")
+    validate_target(document["target"], track, path + ".target", tool)
     return document
 
 
@@ -456,7 +470,9 @@ def validate_report(document, path="$"):
         raise ContractError(path + ".targets: expected array")
     names = []
     for index, target in enumerate(targets):
-        validate_target(target, track, "{0}.targets[{1}]".format(path, index))
+        validate_target(
+            target, track, "{0}.targets[{1}]".format(path, index), tool
+        )
         names.append(target["name"])
     if len(names) != len(set(names)):
         raise ContractError(path + ".targets: duplicate target name")
