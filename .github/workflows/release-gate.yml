@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       target-sha:
-        description: Full commit SHA whose branch push runs must have succeeded
+        description: Full commit SHA whose push runs (branch or tag) must have succeeded
         required: true
         type: string
       workflow-files-json:
@@ -117,12 +117,20 @@ jobs:
               workflow_id="${workflow_ids[${index}]}"
               workflow_name="${workflow_names[${index}]}"
               # GitHub's `?head_sha=` and `?event=` query filters have been spuriously returning 0 results since 2026-04-27.
-              # Filter the latest 100 runs client-side instead.
-              runs_url="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}/runs?per_page=100"
-              runs_json="$(curl --proto '=https' --tlsv1.2 --retry 3 --fail --silent --show-error \
-                -H "Authorization: Bearer ${GH_TOKEN}" \
-                -H "Accept: application/vnd.github+json" \
-                "${runs_url}")"
+              # Filter the latest runs client-side instead, paging up to 5 x 100 so an older target run is still found.
+              runs_pages=()
+              for page in 1 2 3 4 5; do
+                runs_url="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}/runs?per_page=100&page=${page}"
+                page_json="$(curl --proto '=https' --tlsv1.2 --retry 3 --fail --silent --show-error \
+                  -H "Authorization: Bearer ${GH_TOKEN}" \
+                  -H "Accept: application/vnd.github+json" \
+                  "${runs_url}")"
+                runs_pages+=("${page_json}")
+                if [ "$(echo "${page_json}" | jq '.workflow_runs | length')" -lt 100 ]; then
+                  break
+                fi
+              done
+              runs_json="$(printf '%s\n' "${runs_pages[@]}" | jq -s '{workflow_runs: (map(.workflow_runs) | add)}')"
               filtered="$(echo "${runs_json}" | jq --arg sha "${TARGET_SHA}" '{
                 workflow_runs: [.workflow_runs[]
                   | select(
