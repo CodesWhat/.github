@@ -79,6 +79,12 @@ on:
         type: string
         default: ""
 
+      artifact-namespace:
+        description: Artifact-safe suffix appended to uploaded artifact names. Set a distinct value when calling this workflow more than once in a run or from a matrix.
+        required: false
+        type: string
+        default: ""
+
 permissions: {}
 
 jobs:
@@ -150,7 +156,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: node-test-${{ github.run_id }}-${{ github.run_attempt }}
+          name: node-test-${{ github.run_id }}-${{ github.run_attempt }}${{ inputs.artifact-namespace != '' && format('-{0}', inputs.artifact-namespace) || '' }}
           path: artifacts/node-test/
           if-no-files-found: ignore
           retention-days: 14
@@ -191,7 +197,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: node-build-${{ github.run_id }}-${{ github.run_attempt }}
+          name: node-build-${{ github.run_id }}-${{ github.run_attempt }}${{ inputs.artifact-namespace != '' && format('-{0}', inputs.artifact-namespace) || '' }}
           path: artifacts/node-build/
           if-no-files-found: ignore
           retention-days: 14

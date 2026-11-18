@@ -45,7 +45,7 @@ class ReusableCIContractTest(unittest.TestCase):
                 "qlty",
                 "fuzz",
             )
-        )
+        ) + ["artifact-namespace"]
         node_inputs = [
             "module-directory",
             "node-version",
@@ -56,7 +56,7 @@ class ReusableCIContractTest(unittest.TestCase):
             "run-lint",
             "run-test",
             "run-build",
-        ] + self.egress_inputs(("lint", "test", "build"))
+        ] + self.egress_inputs(("lint", "test", "build")) + ["artifact-namespace"]
         release_inputs = [
             "target-sha",
             "workflow-files-json",
@@ -128,6 +128,8 @@ class ReusableCIContractTest(unittest.TestCase):
         ):
             self.assert_input("go", input_name, "boolean", default="false")
 
+        self.assert_input("go", "artifact-namespace", "string", default="")
+        self.assert_input("node", "artifact-namespace", "string", default="")
         self.assert_input("node", "module-directory", "string", default=".")
         self.assert_input("node", "node-version", "string", default="24")
         self.assert_input("node", "lockfile-path", "string", default="package-lock.json")
@@ -233,7 +235,38 @@ class ReusableCIContractTest(unittest.TestCase):
             upload_count = workflow.count("actions/upload-artifact@")
             self.assertEqual(upload_count, workflow.count("if-no-files-found: ignore"))
             self.assertEqual(upload_count, workflow.count("retention-days: 14"))
-            self.assertEqual(upload_count, workflow.count("if: always()"))
+            # The fuzz naming step also runs under always() so the upload has a name.
+            self.assertEqual(
+                upload_count + workflow.count("id: fuzz-artifact"),
+                workflow.count("if: always()"),
+            )
+
+    def test_artifact_names_carry_the_optional_namespace(self):
+        go = self.read_workflow(WORKFLOWS["go"])
+        node = self.read_workflow(WORKFLOWS["node"])
+        suffix = "${{ inputs.artifact-namespace != '' && format('-{0}', inputs.artifact-namespace) || '' }}"
+        run = "${{ github.run_id }}-${{ github.run_attempt }}"
+
+        for workflow, names in (
+            (go, (f"go-test-{run}", f"go-fuzz-${{{{ steps.fuzz-artifact.outputs.name }}}}-{run}")),
+            (node, (f"node-test-{run}", f"node-build-{run}")),
+        ):
+            for name in names:
+                self.assertIn(f"          name: {name}{suffix}\n", workflow)
+
+        step = self.fuzz_naming_step()
+        self.assertIn("id: fuzz-artifact", step)
+        self.assertIn("FUZZERS_JSON: ${{ inputs.fuzzers-json }}", step)
+        self.assertIn("FUZZER: ${{ matrix.fuzzer.name }}", step)
+        self.assertIn("JOB_INDEX: ${{ strategy.job-index }}", step)
+        self.assertNotIn("${{", self.fuzz_naming_script())
+
+    def test_fuzz_artifact_name_is_unchanged_unless_the_fuzzer_name_repeats(self):
+        unique = json.dumps([{"name": "FuzzA", "pkg": "./a"}, {"name": "FuzzB", "pkg": "./b"}])
+        duplicate = json.dumps([{"name": "FuzzA", "pkg": "./a"}, {"name": "FuzzA", "pkg": "./b"}])
+
+        self.assertEqual("FuzzA", self.run_fuzz_naming(unique, "FuzzA", "0"))
+        self.assertEqual("FuzzA-1", self.run_fuzz_naming(duplicate, "FuzzA", "1"))
 
     def test_release_gate_checks_every_workflow_by_exact_sha_push_and_nonempty_branch(self):
         exact_success = {
@@ -264,9 +297,62 @@ class ReusableCIContractTest(unittest.TestCase):
     def test_release_gate_keeps_authoritative_client_side_run_filtering(self):
         release = self.read_workflow(WORKFLOWS["release"])
 
-        self.assertIn("/runs?per_page=100\"", release)
+        self.assertIn("for page in 1 2 3 4 5; do", release)
+        self.assertIn("/runs?per_page=100&page=${page}\"", release)
+        self.assertIn("-lt 100 ]; then", release)
         self.assertNotRegex(release, r"runs\?[^\"\n]*(?:event|head_sha)=")
         self.assertIn("spuriously returning 0 results since 2026-04-27", release)
+
+    def test_release_gate_finds_a_target_run_on_a_later_page(self):
+        filler = {
+            "head_sha": "b" * 40,
+            "event": "push",
+            "head_branch": "main",
+            "status": "completed",
+            "conclusion": "success",
+        }
+        exact_success = {**filler, "head_sha": TARGET_SHA}
+        result = self.run_release_gate(
+            {"ci-verify.yml": [filler] * 100},
+            extra_pages_by_workflow={"ci-verify.yml": [[exact_success]]},
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn(f"Found successful CI Verify push run for {TARGET_SHA}.", result.stdout)
+        self.assertEqual(2, len(result.requests), result.requests)
+        self.assertTrue(result.requests[1].endswith("/runs?per_page=100&page=2"))
+
+    def test_release_gate_stops_paging_after_a_short_page(self):
+        short_page = [
+            {
+                "head_sha": "b" * 40,
+                "event": "push",
+                "head_branch": "main",
+                "status": "completed",
+                "conclusion": "success",
+            }
+        ] * 99
+        result = self.run_release_gate({"ci-verify.yml": short_page})
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(1, len(result.requests), result.requests)
+        self.assertTrue(result.requests[0].endswith("/runs?per_page=100&page=1"))
+
+    def test_release_gate_caps_paging_at_five_pages(self):
+        filler = {
+            "head_sha": "b" * 40,
+            "event": "push",
+            "head_branch": "main",
+            "status": "completed",
+            "conclusion": "success",
+        }
+        result = self.run_release_gate(
+            {"ci-verify.yml": [filler] * 100},
+            extra_pages_by_workflow={"ci-verify.yml": [[filler] * 100] * 5},
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(5, len(result.requests), result.requests)
 
     def test_release_gate_uses_one_shared_poll_budget_for_every_workflow(self):
         in_progress = {
@@ -428,6 +514,40 @@ class ReusableCIContractTest(unittest.TestCase):
     def fixed_scripts(self, workflow):
         return re.findall(r"^\s+run: (\./scripts/ci/[^\s]+)$", workflow, re.MULTILINE)
 
+    def fuzz_naming_step(self):
+        go = self.read_workflow(WORKFLOWS["go"])
+        marker = "      - name: Name Go fuzz artifact\n"
+        self.assertIn(marker, go)
+        return go.split(marker, 1)[1].split("\n      - name:", 1)[0]
+
+    def fuzz_naming_script(self):
+        block = self.fuzz_naming_step().split("        run: |\n", 1)[1]
+        return "\n".join(line[10:] for line in block.splitlines())
+
+    def run_fuzz_naming(self, fuzzers_json, fuzzer, job_index):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "output"
+            output.write_text("")
+            env = os.environ.copy()
+            env.update(
+                {
+                    "FUZZERS_JSON": fuzzers_json,
+                    "FUZZER": fuzzer,
+                    "JOB_INDEX": job_index,
+                    "GITHUB_OUTPUT": str(output),
+                }
+            )
+            result = subprocess.run(
+                ["bash", "-c", self.fuzz_naming_script()],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            return output.read_text().strip().removeprefix("name=")
+
     def release_gate_script(self):
         workflow = self.read_workflow(WORKFLOWS["release"])
         marker = "      - name: Verify required CI workflows\n"
@@ -453,6 +573,7 @@ class ReusableCIContractTest(unittest.TestCase):
         max_attempts="1",
         api_url="https://api.github.com",
         runs_sequences_by_workflow=None,
+        extra_pages_by_workflow=None,
     ):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp = Path(temp_dir)
@@ -478,6 +599,14 @@ class ReusableCIContractTest(unittest.TestCase):
                     )
                 (fixtures / f"{workflow_id}.last").write_text(str(len(runs_sequence)))
 
+            # Extra pages (2, 3, ...) served for the first poll of a workflow.
+            for workflow_file, pages in (extra_pages_by_workflow or {}).items():
+                workflow_id = metadata[workflow_file][0]
+                for page, runs in enumerate(pages, start=2):
+                    (fixtures / f"{workflow_id}.1.p{page}.json").write_text(
+                        json.dumps({"workflow_runs": runs})
+                    )
+
             curl = fake_bin / "curl"
             curl.write_text(
                 "#!/usr/bin/env bash\n"
@@ -485,19 +614,29 @@ class ReusableCIContractTest(unittest.TestCase):
                 "case \"$url\" in\n"
                 "  */actions/workflows/ci-verify.yml) printf '%s' '{\"id\":123,\"name\":\"CI Verify\",\"path\":\".github/workflows/ci-verify.yml\"}' ;;\n"
                 "  */actions/workflows/e2e-playwright.yml) printf '%s' '{\"id\":456,\"name\":\"E2E Playwright\",\"path\":\".github/workflows/e2e-playwright.yml\"}' ;;\n"
-                "  */actions/workflows/123/runs?per_page=100) workflow_id=123 ;;\n"
-                "  */actions/workflows/456/runs?per_page=100) workflow_id=456 ;;\n"
+                "  */actions/workflows/123/runs?per_page=100\\&page=*) workflow_id=123 ;;\n"
+                "  */actions/workflows/456/runs?per_page=100\\&page=*) workflow_id=456 ;;\n"
                 "  *) printf 'unexpected URL: %s\\n' \"$url\" >&2; exit 22 ;;\n"
                 "esac\n"
                 "if [ -n \"${workflow_id:-}\" ]; then\n"
+                "  printf '%s\\n' \"$url\" >> \"$RUNS_FIXTURES/requests.log\"\n"
+                "  page=\"${url##*page=}\"\n"
                 "  count_file=\"$RUNS_FIXTURES/$workflow_id.count\"\n"
                 "  count=0\n"
                 "  [ ! -f \"$count_file\" ] || count=$(cat \"$count_file\")\n"
-                "  count=$((count + 1))\n"
-                "  printf '%s' \"$count\" > \"$count_file\"\n"
+                "  if [ \"$page\" = 1 ]; then\n"
+                "    count=$((count + 1))\n"
+                "    printf '%s' \"$count\" > \"$count_file\"\n"
+                "  fi\n"
                 "  last=$(cat \"$RUNS_FIXTURES/$workflow_id.last\")\n"
                 "  [ \"$count\" -le \"$last\" ] || count=\"$last\"\n"
-                "  cat \"$RUNS_FIXTURES/$workflow_id.$count.json\"\n"
+                "  if [ \"$page\" = 1 ]; then\n"
+                "    cat \"$RUNS_FIXTURES/$workflow_id.$count.json\"\n"
+                "  elif [ -f \"$RUNS_FIXTURES/$workflow_id.$count.p$page.json\" ]; then\n"
+                "    cat \"$RUNS_FIXTURES/$workflow_id.$count.p$page.json\"\n"
+                "  else\n"
+                "    printf '%s' '{\"workflow_runs\":[]}'\n"
+                "  fi\n"
                 "fi\n"
             )
             curl.chmod(0o755)
@@ -522,7 +661,7 @@ class ReusableCIContractTest(unittest.TestCase):
                     "WORKFLOW_FILES_JSON": workflow_files_json,
                 }
             )
-            return subprocess.run(
+            result = subprocess.run(
                 ["bash", "-c", self.release_gate_script()],
                 cwd=ROOT,
                 env=env,
@@ -530,6 +669,9 @@ class ReusableCIContractTest(unittest.TestCase):
                 text=True,
                 check=False,
             )
+            log = fixtures / "requests.log"
+            result.requests = log.read_text().splitlines() if log.exists() else []
+            return result
 
 
 if __name__ == "__main__":
