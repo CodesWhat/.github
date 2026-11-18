@@ -45,7 +45,7 @@ class ReusableCIContractTest(unittest.TestCase):
                 "qlty",
                 "fuzz",
             )
-        )
+        ) + ["artifact-namespace"]
         node_inputs = [
             "module-directory",
             "node-version",
@@ -56,7 +56,7 @@ class ReusableCIContractTest(unittest.TestCase):
             "run-lint",
             "run-test",
             "run-build",
-        ] + self.egress_inputs(("lint", "test", "build"))
+        ] + self.egress_inputs(("lint", "test", "build")) + ["artifact-namespace"]
         release_inputs = [
             "target-sha",
             "workflow-files-json",
@@ -128,6 +128,8 @@ class ReusableCIContractTest(unittest.TestCase):
         ):
             self.assert_input("go", input_name, "boolean", default="false")
 
+        self.assert_input("go", "artifact-namespace", "string", default="")
+        self.assert_input("node", "artifact-namespace", "string", default="")
         self.assert_input("node", "module-directory", "string", default=".")
         self.assert_input("node", "node-version", "string", default="24")
         self.assert_input("node", "lockfile-path", "string", default="package-lock.json")
@@ -233,7 +235,38 @@ class ReusableCIContractTest(unittest.TestCase):
             upload_count = workflow.count("actions/upload-artifact@")
             self.assertEqual(upload_count, workflow.count("if-no-files-found: ignore"))
             self.assertEqual(upload_count, workflow.count("retention-days: 14"))
-            self.assertEqual(upload_count, workflow.count("if: always()"))
+            # The fuzz naming step also runs under always() so the upload has a name.
+            self.assertEqual(
+                upload_count + workflow.count("id: fuzz-artifact"),
+                workflow.count("if: always()"),
+            )
+
+    def test_artifact_names_carry_the_optional_namespace(self):
+        go = self.read_workflow(WORKFLOWS["go"])
+        node = self.read_workflow(WORKFLOWS["node"])
+        suffix = "${{ inputs.artifact-namespace != '' && format('-{0}', inputs.artifact-namespace) || '' }}"
+        run = "${{ github.run_id }}-${{ github.run_attempt }}"
+
+        for workflow, names in (
+            (go, (f"go-test-{run}", f"go-fuzz-${{{{ steps.fuzz-artifact.outputs.name }}}}-{run}")),
+            (node, (f"node-test-{run}", f"node-build-{run}")),
+        ):
+            for name in names:
+                self.assertIn(f"          name: {name}{suffix}\n", workflow)
+
+        step = self.fuzz_naming_step()
+        self.assertIn("id: fuzz-artifact", step)
+        self.assertIn("FUZZERS_JSON: ${{ inputs.fuzzers-json }}", step)
+        self.assertIn("FUZZER: ${{ matrix.fuzzer.name }}", step)
+        self.assertIn("JOB_INDEX: ${{ strategy.job-index }}", step)
+        self.assertNotIn("${{", self.fuzz_naming_script())
+
+    def test_fuzz_artifact_name_is_unchanged_unless_the_fuzzer_name_repeats(self):
+        unique = json.dumps([{"name": "FuzzA", "pkg": "./a"}, {"name": "FuzzB", "pkg": "./b"}])
+        duplicate = json.dumps([{"name": "FuzzA", "pkg": "./a"}, {"name": "FuzzA", "pkg": "./b"}])
+
+        self.assertEqual("FuzzA", self.run_fuzz_naming(unique, "FuzzA", "0"))
+        self.assertEqual("FuzzA-1", self.run_fuzz_naming(duplicate, "FuzzA", "1"))
 
     def test_release_gate_checks_every_workflow_by_exact_sha_push_and_nonempty_branch(self):
         exact_success = {
@@ -427,6 +460,40 @@ class ReusableCIContractTest(unittest.TestCase):
 
     def fixed_scripts(self, workflow):
         return re.findall(r"^\s+run: (\./scripts/ci/[^\s]+)$", workflow, re.MULTILINE)
+
+    def fuzz_naming_step(self):
+        go = self.read_workflow(WORKFLOWS["go"])
+        marker = "      - name: Name Go fuzz artifact\n"
+        self.assertIn(marker, go)
+        return go.split(marker, 1)[1].split("\n      - name:", 1)[0]
+
+    def fuzz_naming_script(self):
+        block = self.fuzz_naming_step().split("        run: |\n", 1)[1]
+        return "\n".join(line[10:] for line in block.splitlines())
+
+    def run_fuzz_naming(self, fuzzers_json, fuzzer, job_index):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "output"
+            output.write_text("")
+            env = os.environ.copy()
+            env.update(
+                {
+                    "FUZZERS_JSON": fuzzers_json,
+                    "FUZZER": fuzzer,
+                    "JOB_INDEX": job_index,
+                    "GITHUB_OUTPUT": str(output),
+                }
+            )
+            result = subprocess.run(
+                ["bash", "-c", self.fuzz_naming_script()],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            return output.read_text().strip().removeprefix("name=")
 
     def release_gate_script(self):
         workflow = self.read_workflow(WORKFLOWS["release"])

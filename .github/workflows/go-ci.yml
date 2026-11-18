@@ -167,6 +167,12 @@ on:
         type: string
         default: ""
 
+      artifact-namespace:
+        description: Artifact-safe suffix appended to uploaded artifact names. Set a distinct value when calling this workflow more than once in a run or from a matrix.
+        required: false
+        type: string
+        default: ""
+
 permissions: {}
 
 jobs:
@@ -205,7 +211,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: go-test-${{ github.run_id }}-${{ github.run_attempt }}
+          name: go-test-${{ github.run_id }}-${{ github.run_attempt }}${{ inputs.artifact-namespace != '' && format('-{0}', inputs.artifact-namespace) || '' }}
           path: artifacts/go-test/
           if-no-files-found: ignore
           retention-days: 14
@@ -465,11 +471,26 @@ jobs:
           PKG: ${{ matrix.fuzzer.pkg }}
         run: ./scripts/ci/go-fuzz.sh
 
+      - name: Name Go fuzz artifact
+        id: fuzz-artifact
+        if: always()
+        env:
+          FUZZERS_JSON: ${{ inputs.fuzzers-json }}
+          FUZZER: ${{ matrix.fuzzer.name }}
+          JOB_INDEX: ${{ strategy.job-index }}
+        run: |
+          duplicates="$(printf '%s' "${FUZZERS_JSON}" | jq --arg name "${FUZZER}" '[.[] | select(.name == $name)] | length')"
+          if [ "${duplicates}" -gt 1 ]; then
+            echo "name=${FUZZER}-${JOB_INDEX}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "name=${FUZZER}" >> "${GITHUB_OUTPUT}"
+          fi
+
       - name: Upload Go fuzz artifacts
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: go-fuzz-${{ matrix.fuzzer.name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: go-fuzz-${{ steps.fuzz-artifact.outputs.name }}-${{ github.run_id }}-${{ github.run_attempt }}${{ inputs.artifact-namespace != '' && format('-{0}', inputs.artifact-namespace) || '' }}
           path: artifacts/go-fuzz/
           if-no-files-found: ignore
           retention-days: 14
