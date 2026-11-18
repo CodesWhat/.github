@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import runpy
 import shutil
@@ -352,6 +353,10 @@ class QualityReportContractTest(unittest.TestCase):
             QUALITY_REPORT["validate_target"](target, "fuzz", "$.target")
 
     def test_oversized_integer_json_is_a_contract_error(self):
+        original_limit = sys.get_int_max_str_digits()
+        self.addCleanup(sys.set_int_max_str_digits, original_limit)
+        sys.set_int_max_str_digits(4300)
+
         with self.assertRaisesRegex(QUALITY_REPORT["ContractError"], "invalid JSON"):
             QUALITY_REPORT["load_json_text"]('{"a":' + "1" * 5000 + "}", "oversized")
 
@@ -369,6 +374,7 @@ class QualityReportContractTest(unittest.TestCase):
                 "internal/docker/FuzzDecodeStats",
             ],
             input_mutator=oversize_target,
+            env={**os.environ, "PYTHONINTMAXSTRDIGITS": "4300"},
         )
 
         self.assertNotEqual(0, result.returncode)
@@ -378,6 +384,38 @@ class QualityReportContractTest(unittest.TestCase):
             report["errors"],
         )
         self.assertEqual(0, self.validate_report(report).returncode)
+
+    def test_schema_requires_seed_and_path_for_fast_check_failures(self):
+        definitions = json.loads(SCHEMA.read_text())["$defs"]
+        failed = {
+            "if": {
+                "properties": {"outcome": {"enum": ["failed", "crashed", "flaked"]}},
+                "required": ["outcome"],
+            },
+            "then": {"properties": {"reproduction": {"required": ["seed", "path"]}}},
+        }
+
+        def fast_check(properties):
+            return {
+                "if": {
+                    "properties": {"tool": {"const": "fast-check"}},
+                    "required": ["tool"],
+                },
+                "then": {"properties": properties},
+            }
+
+        self.assertIn(
+            fast_check({"target": failed}), definitions["targetResult"]["allOf"]
+        )
+        self.assertIn(
+            fast_check({"targets": {"items": failed}}),
+            definitions["report"]["allOf"],
+        )
+        self.assertEqual(
+            {"seed", "path", "corpus"},
+            set(definitions["reproduction"]["properties"]),
+        )
+        self.assertEqual(1, definitions["reproduction"]["minProperties"])
 
     def test_fast_check_failures_require_seed_and_path(self):
         def target(reproduction):
@@ -679,7 +717,9 @@ class QualityReportContractTest(unittest.TestCase):
             workflow.count("python3 .github/tests/quality_report_contract_test.py"),
         )
 
-    def aggregate(self, fixture, *, track, tool, expected, input_mutator=None):
+    def aggregate(
+        self, fixture, *, track, tool, expected, input_mutator=None, env=None
+    ):
         self.assertTrue(SCRIPT.is_file(), f"missing aggregator: {SCRIPT}")
         with tempfile.TemporaryDirectory() as temp_dir:
             input_dir = Path(temp_dir) / "input"
@@ -733,7 +773,7 @@ class QualityReportContractTest(unittest.TestCase):
                 str(summary_path),
             ]
             result = subprocess.run(
-                command, capture_output=True, text=True, timeout=30
+                command, capture_output=True, text=True, timeout=30, env=env
             )
             report_path = output_dir / "report.json"
             summary_file = output_dir / "summary.md"
