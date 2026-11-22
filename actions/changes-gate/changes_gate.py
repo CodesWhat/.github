@@ -69,6 +69,7 @@ def matches(name, includes, excludes):
 
 
 def fetch_page(url, auth):
+    """GET url and return (parsed JSON, Link header or None)."""
     request = urllib.request.Request(
         url,
         headers={
@@ -81,20 +82,54 @@ def fetch_page(url, auth):
     with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
         if response.status != 200:
             raise Doubt("status")
-        return json.loads(response.read().decode("utf-8"))
+        return json.loads(response.read().decode("utf-8")), response.headers.get("Link")
+
+
+LINK_PART = re.compile(r'\s*<([^<>\s]+)>\s*((?:;\s*[A-Za-z]+\s*=\s*(?:"[^"]*"|[^\s;,"]+)\s*)*)')
+REL = re.compile(r';\s*rel\s*=\s*"?([^";,]*)"?', re.IGNORECASE)
+
+
+def next_link(header):
+    """Return the rel="next" URL, None if absent. Malformed raises Doubt."""
+    if header is None or not header.strip():
+        return None
+    found = None
+    pos = 0
+    while pos < len(header):
+        match = LINK_PART.match(header, pos)
+        if not match:
+            raise Doubt("link")
+        rel = REL.search(match.group(2))
+        if rel and "next" in rel.group(1).lower().split():
+            found = match.group(1)
+        pos = match.end()
+        if pos < len(header):
+            if header[pos] != ",":
+                raise Doubt("link")
+            pos += 1
+    return found
+
+
+def expected_count(api, repo, number, auth, fetch):
+    data, _ = fetch("{0}/repos/{1}/pulls/{2}".format(api, repo, number), auth)
+    count = data.get("changed_files") if isinstance(data, dict) else None
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        raise Doubt("count")
+    if count >= FILE_CAP:
+        raise Doubt("cap")
+    return count
 
 
 def list_names(api, repo, number, auth, fetch):
+    expected = expected_count(api, repo, number, auth, fetch)
     names = []
     files = 0
     started = time.monotonic()
-    for page in range(1, MAX_PAGES + 2):
+    url = "{0}/repos/{1}/pulls/{2}/files?per_page={3}".format(api, repo, number, PER_PAGE)
+    for _ in range(MAX_PAGES + 1):
         if time.monotonic() - started > DEADLINE_SECONDS:
             raise Doubt("deadline")
-        url = "{0}/repos/{1}/pulls/{2}/files?per_page={3}&page={4}".format(
-            api, repo, number, PER_PAGE, page
-        )
-        data = fetch(url, auth)
+        data, link = fetch(url, auth)
         if not isinstance(data, list):
             raise Doubt("shape")
         for item in data:
@@ -109,8 +144,13 @@ def list_names(api, repo, number, auth, fetch):
                 names.append(previous)
         if files >= FILE_CAP:
             raise Doubt("cap")
-        if len(data) < PER_PAGE:
+        url = next_link(link)
+        if url is None:
+            if files != expected:
+                raise Doubt("incomplete")
             return names
+        if len(data) < PER_PAGE or not url.startswith(api + "/"):
+            raise Doubt("link")
     raise Doubt("cap")
 
 

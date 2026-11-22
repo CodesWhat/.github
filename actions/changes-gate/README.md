@@ -47,7 +47,9 @@ Pin the action to a full commit SHA. No checkout is needed.
 (`filename` and, for renames, `previous_filename`). Every other event
 returns `true`. The result is also `true` when the pattern list has no
 includes, the API errors or times out, the response can't be parsed, or the
-PR has 3000 or more files. `false` only means the listing completed and
+PR has 3000 or more files. It also returns `true` when the files listed
+don't add up to the PR's `changed_files` count, or when pagination (the
+`Link` header) is malformed or inconsistent. `false` only means the listing completed and
 nothing matched.
 
 The script is Python 3 standard library only, reads everything from
