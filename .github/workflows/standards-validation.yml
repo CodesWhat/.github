@@ -42,6 +42,7 @@ jobs:
           python3 .github/tests/community_health_contract_test.py
           python3 .github/tests/greptile_summon_contract_test.py
           python3 .github/tests/tracked_validation_test.py
+          python3 .github/tests/changes_gate_contract_test.py
           python3 .github/tests/test_wiring_contract_test.py
 
       - name: Compile Python
