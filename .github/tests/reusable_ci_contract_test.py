@@ -131,7 +131,7 @@ class ReusableCIContractTest(unittest.TestCase):
         self.assert_input("go", "artifact-namespace", "string", default="")
         self.assert_input("node", "artifact-namespace", "string", default="")
         self.assert_input("node", "module-directory", "string", default=".")
-        self.assert_input("node", "node-version", "string", default="24")
+        self.assert_input("node", "node-version", "string", default="26")
         self.assert_input("node", "lockfile-path", "string", default="package-lock.json")
         self.assert_input("node", "lint-check-name", "string", default="Node Lint")
         self.assert_input("node", "test-check-name", "string", default="Node Test")

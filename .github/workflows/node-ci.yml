@@ -12,7 +12,7 @@ on:
         description: Node.js version used by enabled jobs
         required: false
         type: string
-        default: 24
+        default: 26
       lockfile-path:
         description: Repository-relative npm lockfile path or multiline paths
         required: false

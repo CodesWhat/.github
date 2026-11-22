@@ -20,6 +20,7 @@ python3 .github/tests/renovate_config_contract_test.py
 python3 .github/tests/starchart_refresh_contract_test.py
 python3 .github/tests/main_is_released_contract_test.py
 python3 .github/tests/tracked_validation_test.py
+python3 .github/tests/changes_gate_contract_test.py
 python3 .github/tests/test_wiring_contract_test.py
 
 echo "==> compile python"
