@@ -1,0 +1,31 @@
+name: Changes gate
+description: >-
+  Decide whether a pull request touched files that matter, so expensive jobs
+  can be skipped. Outputs run=true on any doubt.
+
+inputs:
+  patterns:
+    description: >-
+      Newline-separated globs. ** is supported, # comments and blank lines are
+      ignored, and a leading ! excludes.
+    required: true
+  github-token:
+    description: Token used to list the pull request's changed files.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  run:
+    description: The string true or false.
+    value: ${{ steps.gate.outputs.run }}
+
+runs:
+  using: composite
+  steps:
+    - id: gate
+      shell: bash
+      env:
+        CHANGES_GATE_PATTERNS: ${{ inputs.patterns }}
+        CHANGES_GATE_AUTH: ${{ inputs.github-token }}
+        CHANGES_GATE_EVENT_NAME: ${{ github.event_name }}
+      run: python3 "$GITHUB_ACTION_PATH/changes_gate.py"
