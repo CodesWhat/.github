@@ -145,6 +145,90 @@ class ChangesGateContractTest(unittest.TestCase):
         out, _ = run_gate("pull_request", files)
         self.assertRun("false", out)
 
+    def test_bracket_classes(self):
+        cases = (
+            ("Sources/[AB].swift", "Sources/A.swift", "true"),
+            ("Sources/[AB].swift", "Sources/C.swift", "false"),
+            ("Sources/[a-c].swift", "Sources/b.swift", "true"),
+            ("Sources/[a-c].swift", "Sources/d.swift", "false"),
+            ("Sources/[!A].swift", "Sources/B.swift", "true"),
+            ("Sources/[!A].swift", "Sources/A.swift", "false"),
+            ("Sources/[^A].swift", "Sources/B.swift", "true"),
+            ("Sources/[^A].swift", "Sources/A.swift", "false"),
+            ("Sources/[ab].swift", "Sources/A.swift", "true"),
+            ("Sources/[A-C].swift", "Sources/b.swift", "true"),
+            ("Sources[x]a", "Sources/a", "false"),
+            ("Sources[!x]a", "Sources/a", "false"),
+            ("Sources/[]].swift", "Sources/].swift", "true"),
+        )
+        for pattern, name, expected in cases:
+            with self.subTest(pattern=pattern, name=name):
+                out, _ = run_gate("pull_request", [entry(name)], patterns=pattern)
+                self.assertRun(expected, out)
+
+    def test_unparseable_glob_runs(self):
+        for pattern in ("Sources/[AB.swift", "Sources/[", "Sources/[z-a].swift", "!Sources/[x"):
+            with self.subTest(pattern=pattern):
+                out, _ = run_gate("pull_request", [entry("docs/a.md")],
+                                  patterns="Sources/**\n" + pattern)
+                self.assertRun("true", out)
+
+    def test_leading_dot_slash_and_trailing_slash(self):
+        for pattern in ("./Sources/**", "././Sources/**", "Sources/", "./Sources/"):
+            with self.subTest(pattern=pattern):
+                out, _ = run_gate("pull_request", [entry("Sources/a/b.swift")], patterns=pattern)
+                self.assertRun("true", out)
+                out, _ = run_gate("pull_request", [entry("docs/a.md")], patterns=pattern)
+                self.assertRun("false", out)
+        out, _ = run_gate("pull_request", [entry("Sources/a.md")],
+                          patterns="Sources/**\n!./Sources/*.md")
+        self.assertRun("false", out)
+
+    def test_exclude_overrides_include(self):
+        patterns = "**/*.swift\n!Sources/Generated/**\n"
+        out, _ = run_gate("pull_request", [entry("Sources/Generated/A.swift")], patterns=patterns)
+        self.assertRun("false", out)
+        out, _ = run_gate("pull_request", [entry("sources/generated/A.swift")], patterns=patterns)
+        self.assertRun("false", out)
+
+    def test_regex_metacharacters_are_literal(self):
+        cases = (
+            ("a+b.txt", "a+b.txt", "true"), ("a+b.txt", "aab.txt", "false"),
+            ("a(b).txt", "a(b).txt", "true"), ("a(b).txt", "ab.txt", "false"),
+            ("a.txt", "axtxt", "false"),
+            ("a$b", "a$b", "true"), ("^a", "^a", "true"), ("^a", "a", "false"),
+            ("a|b", "a|b", "true"), ("a|b", "a", "false"),
+        )
+        for pattern, name, expected in cases:
+            with self.subTest(pattern=pattern, name=name):
+                out, _ = run_gate("pull_request", [entry(name)], patterns=pattern)
+                self.assertRun(expected, out)
+
+    def test_odd_repository_rejected_without_fetching(self):
+        for repo in ("Cod esWhat/x", "a/b/c", "../x", "x/..", "a;b/c", "a/b\nc", "noslash", ""):
+            with self.subTest(repo=repo):
+                calls = []
+
+                def fetch(url, auth):
+                    calls.append(url)
+                    return [], None
+                with tempfile.TemporaryDirectory() as tmp:
+                    event = Path(tmp) / "event.json"
+                    event.write_text(json.dumps({"pull_request": {"number": 7}}))
+                    out_path = Path(tmp) / "output"
+                    env = {
+                        "CHANGES_GATE_EVENT_NAME": "pull_request",
+                        "CHANGES_GATE_PATTERNS": PATTERNS,
+                        "CHANGES_GATE_AUTH": "secret-value",
+                        "GITHUB_REPOSITORY": repo,
+                        "GITHUB_EVENT_PATH": str(event),
+                        "GITHUB_OUTPUT": str(out_path),
+                    }
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        gate.main(env, fetch)
+                    self.assertRun("true", out_path.read_text())
+                self.assertEqual([], calls)
+
     def test_truncated_listing_runs(self):
         out, _ = run_gate("pull_request", [entry("docs/a.md")], changed=101)
         self.assertRun("true", out)

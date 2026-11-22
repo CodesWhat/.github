@@ -23,19 +23,62 @@ class Doubt(Exception):
     """Raised for anything that should resolve to run=true."""
 
 
+def normalize(line):
+    while line.startswith("./"):
+        line = line[2:]
+    if line.endswith("/"):
+        line += "**"
+    return line
+
+
 def parse_patterns(text):
+    """Return (includes, excludes). Raises ValueError on an unparseable glob."""
     includes, excludes = [], []
     for raw in (text or "").splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
+        target = includes
         if line.startswith("!"):
             line = line[1:].strip()
-            if line:
-                excludes.append(glob_to_regex(line))
-        else:
-            includes.append(glob_to_regex(line))
+            target = excludes
+        line = normalize(line)
+        if line:
+            target.append(glob_to_regex(line))
     return includes, excludes
+
+
+def char_class(pattern, start):
+    """Parse a [...] class opening at start. Return (regex, next index)."""
+    n = len(pattern)
+    i = start + 1
+    negate = False
+    if i < n and pattern[i] in "!^":
+        negate = True
+        i += 1
+    items = []
+    first = True
+    while True:
+        if i >= n:
+            raise ValueError("unclosed class")
+        c = pattern[i]
+        if c == "]" and not first:
+            i += 1
+            break
+        first = False
+        if i + 2 < n and pattern[i + 1] == "-" and pattern[i + 2] != "]":
+            lo, hi = c, pattern[i + 2]
+            if lo > hi:
+                raise ValueError("bad range")
+            items.append(re.escape(lo) + "-" + re.escape(hi))
+            i += 3
+        else:
+            items.append(re.escape(c))
+            i += 1
+    body = "".join(items)
+    if negate:
+        return "[^/" + body + "]", i
+    return "(?!/)[" + body + "]", i
 
 
 def glob_to_regex(pattern):
@@ -56,6 +99,10 @@ def glob_to_regex(pattern):
             out.append("[^/]*")
         elif c == "?":
             out.append("[^/]")
+        elif c == "[":
+            piece, i = char_class(pattern, i)
+            out.append(piece)
+            continue
         else:
             out.append(re.escape(c))
         i += 1
@@ -169,11 +216,15 @@ def decide(env, fetch=fetch_page):
     """Return (run, examined, matched)."""
     if env.get("CHANGES_GATE_EVENT_NAME") not in ("pull_request", "pull_request_target"):
         return True, 0, 0
-    includes, excludes = parse_patterns(env.get("CHANGES_GATE_PATTERNS", ""))
+    try:
+        includes, excludes = parse_patterns(env.get("CHANGES_GATE_PATTERNS", ""))
+    except (ValueError, re.error):
+        return True, 0, 0
     if not includes:
         return True, 0, 0
     repo = env.get("GITHUB_REPOSITORY", "")
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo) or any(
+            part in (".", "..") for part in repo.split("/")):
         return True, 0, 0
     api = (env.get("GITHUB_API_URL") or "https://api.github.com").rstrip("/")
     auth = env.get("CHANGES_GATE_AUTH", "")

@@ -37,7 +37,10 @@ Pin the action to a full commit SHA. No checkout is needed.
 ## Contract
 
 - `patterns` (required): newline-separated globs. `**` matches across
-  directories, `*` and `?` stay inside one path segment. `#` comments and
+  directories. `*`, `?` and `[abc]`, `[a-z]`, `[!x]` classes stay inside one
+  path segment.
+  A leading `./` is ignored and a trailing `/` means `/**`. An unparseable
+  glob (an unclosed `[`) makes the result `true`. `#` comments and
   blank lines are ignored. A leading `!` excludes. Matching is
   case-insensitive.
 - `github-token`: defaults to `github.token`.
