@@ -38,7 +38,10 @@ jobs:
 
   build-and-test:
     needs: verify
-    if: ${{ !cancelled() && (needs.verify.result != 'success' || needs.verify.outputs.reuse != 'true') }}
+    if: >-
+      ${{ !cancelled() &&
+      (needs.verify.result != 'success' ||
+      needs.verify.outputs.reuse != 'true') }}
     runs-on: macos-26
     steps:
       - uses: actions/checkout@<full sha>

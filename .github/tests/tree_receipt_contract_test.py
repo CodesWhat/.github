@@ -731,6 +731,7 @@ class VerifyTests(unittest.TestCase):
         readme = (BASE / "README.md").read_text(encoding="utf-8")
         self.assertIn("needs.verify.result != 'success'", readme)
         self.assertIn("!cancelled()", readme)
+        self.assertIn("needs.verify.outputs.reuse != 'true'", readme)
         self.assertIn("fetch-depth: 2", readme)
         self.assertNotIn("tested-tree", readme.replace("`tested-tree` input", ""))
 
