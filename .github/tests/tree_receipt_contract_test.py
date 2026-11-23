@@ -84,12 +84,22 @@ class Pages:
 class Api:
     """Mock fetch: routes keyed by path, optionally paged."""
 
-    def __init__(self, routes):
+    def __init__(self, routes, after=None):
         self.routes = routes
+        self.after = after or {}
         self.calls = []
+        self.timeouts = []
 
-    def __call__(self, url, auth):
+    def __call__(self, url, auth, timeout=None):
+        self.timeouts.append(timeout)
         self.calls.append(url)
+        value = self.lookup(url)
+        hook = self.after.get(url[len(API):].partition("?")[0])
+        if hook:
+            hook()
+        return value
+
+    def lookup(self, url):
         assert url.startswith(API), url
         rest = url[len(API):]
         path, _, query = rest.partition("?")
@@ -176,10 +186,11 @@ def base_env(tmp, event="push", pr_head=None, **extra):
     return env
 
 
-def run_verify(routes, event="push", git=None, pr_head=None, now=NOW, **extra):
+def run_verify(routes, event="push", git=None, pr_head=None, now=NOW, after=None,
+               **extra):
     with tempfile.TemporaryDirectory() as tmp:
         env = base_env(tmp, event, pr_head, **extra)
-        api = Api(routes)
+        api = Api(routes, after)
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             verify.main(env, git or git_stub(), api, now)
@@ -597,14 +608,66 @@ class VerifyTests(unittest.TestCase):
         self.assertEqual(1, sum(1 for c in api.calls if c.endswith("/actions/runs/500")))
 
     def test_verify_deadline(self):
-        for last, expected in ((120, "true"), (121, "false")):
-            with self.subTest(last=last):
-                with unittest.mock.patch.object(verify.time, "monotonic",
-                                                side_effect=[0, last]):
-                    out, log, _ = run_verify(good_routes())
+        # Evidence finishing inside the budget is accepted, past it is not.
+        for finish, expected in ((119, "true"), (120, "true"), (121, "false")):
+            with self.subTest(finish=finish):
+                clock = {"t": 0}
+                first = []
+
+                def mono():
+                    if not first:
+                        first.append(1)
+                        return 0
+                    return clock["t"]
+                clock["t"] = 119
+                after = {run_path(500) + "/jobs": lambda f=finish: clock.update(t=f)}
+                with unittest.mock.patch.object(verify.time, "monotonic", mono):
+                    out, log, _ = run_verify(good_routes(), after=after)
                 self.assertReuse(expected, out)
                 if expected == "false":
                     self.assertIn("deadline", log)
+
+    def test_no_request_issued_once_budget_is_spent(self):
+        clock = iter([0] + [121] * 50)
+        with unittest.mock.patch.object(verify.time, "monotonic", lambda: next(clock)):
+            out, log, api = run_verify(good_routes())
+        self.assertReuse("false", out)
+        self.assertIn("deadline", log)
+        self.assertEqual([], api.calls)
+
+    def test_request_timeout_is_capped_by_remaining_budget(self):
+        routes = good_routes()
+        times = iter([0] + [110] * 200)
+        with unittest.mock.patch.object(verify.time, "monotonic", lambda: next(times)):
+            _, _, api = run_verify(routes)
+        self.assertTrue(api.timeouts)
+        self.assertTrue(all(0 < t <= 10 for t in api.timeouts), api.timeouts)
+        _, _, api = run_verify(routes)
+        self.assertTrue(all(t == verify.REQUEST_TIMEOUT for t in api.timeouts))
+
+    def test_fetch_json_passes_timeout_to_opener(self):
+        seen = []
+
+        class Response:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return b"{}"
+
+        class Opener:
+            def open(self, request, timeout=None):
+                seen.append(timeout)
+                return Response()
+        with unittest.mock.patch.object(verify, "OPENER", Opener()):
+            verify.fetch_json(API + "/x", "a", timeout=7.5)
+            verify.fetch_json(API + "/x", "a")
+        self.assertEqual([7.5, verify.REQUEST_TIMEOUT], seen)
 
     def test_malformed_pulls_response(self):
         for bad in ({"x": 1}, "text", [{"head": {}}], [{}], [None], [{"head": {"sha": 5}}]):

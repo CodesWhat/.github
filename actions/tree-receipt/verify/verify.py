@@ -58,7 +58,7 @@ def default_git(args):
                           timeout=30, check=True).stdout.strip()
 
 
-def fetch_json(url, auth):
+def fetch_json(url, auth, timeout=REQUEST_TIMEOUT):
     request = urllib.request.Request(
         url,
         headers={
@@ -69,7 +69,7 @@ def fetch_json(url, auth):
         },
     )
     try:
-        with OPENER.open(request, timeout=REQUEST_TIMEOUT) as response:
+        with OPENER.open(request, timeout=timeout) as response:
             if response.status != 200:
                 raise Doubt("status")
             return json.loads(response.read().decode("utf-8"))
@@ -269,12 +269,19 @@ def decide(env, git=default_git, fetch=fetch_json, now=None):
     now = now or datetime.datetime.now(datetime.timezone.utc)
     started = time.monotonic()
     tree = current_tree(git)
-    cands = candidates(env, git, api, repo, auth, fetch, log)
+
+    def budgeted(url, token):
+        remaining = DEADLINE_SECONDS - (time.monotonic() - started)
+        if remaining <= 0:
+            raise Doubt("deadline")
+        return fetch(url, token, timeout=min(REQUEST_TIMEOUT, remaining))
+
+    cands = candidates(env, git, api, repo, auth, budgeted, log)
     cache = []
 
     def trusted():
         if not cache:
-            cache.append(default_branch_blob(api, repo, path, auth, fetch))
+            cache.append(default_branch_blob(api, repo, path, auth, budgeted))
         return cache[0]
 
     log.append("tree={0} candidates={1}".format(tree, len(cands)))
@@ -286,7 +293,7 @@ def decide(env, git=default_git, fetch=fetch_json, now=None):
     for sha in cands:
         if time.monotonic() - started > DEADLINE_SECONDS:
             raise Doubt("deadline")
-        for status in statuses(api, repo, sha, auth, fetch):
+        for status in statuses(api, repo, sha, auth, budgeted):
             if not isinstance(status, dict):
                 raise Doubt("shape")
             creator = status.get("creator")
@@ -305,10 +312,12 @@ def decide(env, git=default_git, fetch=fetch_json, now=None):
                 return False, "", log
             checked.add(run_id)
             created = validate_run(api, repo, run_id, sha, path, tree, tree, trusted,
-                                   max_age, now, auth, fetch)
+                                   max_age, now, auth, budgeted)
             if created is None:
                 log.append("rejected candidate={0} run={1}".format(sha, run_id))
                 continue
+            if time.monotonic() - started > DEADLINE_SECONDS:
+                raise Doubt("deadline")
             evidence = target
             log.append("evidence candidate={0} run={1} created_at={2}".format(
                 sha, evidence, created.strftime("%Y-%m-%dT%H:%M:%SZ")))
