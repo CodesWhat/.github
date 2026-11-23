@@ -626,6 +626,64 @@ class ChangesGateContractTest(unittest.TestCase):
         self.assertEqual("cap", str(caught.exception))
         self.assertEqual(gate.MAX_PAGES + 1, len(pages))
 
+    def test_class_includes_fold_symmetrically(self):
+        out, _ = run_gate("pull_request", [entry("\u212a.txt")], patterns="[K].txt")
+        self.assertRun("true", out)
+        out, _ = run_gate("pull_request", [entry("K.txt")], patterns="[\u212a].txt")
+        self.assertRun("true", out)
+        out, _ = run_gate("pull_request", [entry("docs.txt")], patterns="[K].txt")
+        self.assertRun("false", out)
+
+    def test_class_ignores_multi_character_folds(self):
+        out, _ = run_gate("pull_request", [entry("\u00df.txt")], patterns="[!a-z].txt")
+        self.assertRun("true", out)
+        out, _ = run_gate("pull_request", [entry("\u00df.txt")], patterns="[a-z].txt")
+        self.assertRun("false", out)
+
+    def test_class_excludes_stay_exact(self):
+        out, _ = run_gate("pull_request", [entry("\u212a.txt")], patterns="**\n![K].txt")
+        self.assertRun("true", out)
+        out, _ = run_gate("pull_request", [entry("K.txt")], patterns="**\n![K].txt")
+        self.assertRun("false", out)
+
+    def test_head_moving_during_listing_runs(self):
+        base = pager([entry("docs/a.md")])
+        reads = []
+
+        def fetch(url, auth):
+            if url.endswith("/pulls/7"):
+                reads.append(url)
+                head = HEAD if len(reads) == 1 else "b" * 40
+                return {"changed_files": 1, "head": {"sha": head}}, None
+            return base(url, auth)
+        out, _ = run_gate("pull_request", fetch=fetch)
+        self.assertRun("true", out)
+        self.assertEqual(2, len(reads))
+
+    def test_changed_files_moving_during_listing_runs(self):
+        base = pager([entry("docs/a.md")])
+        reads = []
+
+        def fetch(url, auth):
+            if url.endswith("/pulls/7"):
+                reads.append(url)
+                return {"changed_files": len(reads), "head": {"sha": HEAD}}, None
+            return base(url, auth)
+        out, _ = run_gate("pull_request", fetch=fetch)
+        self.assertRun("true", out)
+
+    def test_stable_head_rechecked_and_skips(self):
+        reads = []
+        base = pager([entry("docs/a.md")])
+
+        def fetch(url, auth):
+            if url.endswith("/pulls/7"):
+                reads.append(url)
+            return base(url, auth)
+        out, _ = run_gate("pull_request", fetch=fetch)
+        self.assertRun("false", out)
+        self.assertEqual(2, len(reads))
+
     def test_action_shape(self):
         action = (ACTION_DIR / "action.yml").read_text(encoding="utf-8")
         for expected in ("using: composite", "required: true",

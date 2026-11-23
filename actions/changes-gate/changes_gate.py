@@ -28,7 +28,9 @@ ANY = ("?",)
 
 
 def variants(ch):
-    return {ch, ch.lower(), ch.upper(), ch.casefold()}
+    """Single-character case variants of ch. Multi-character expansions
+    (e.g. the casefold of the German sharp s) are dropped."""
+    return {v for v in (ch, ch.lower(), ch.upper(), ch.casefold()) if len(v) == 1}
 
 
 def normalize(line):
@@ -118,8 +120,15 @@ def token_matches(token, ch, fold):
         return True
     if kind == "c":
         return ch == token[1] or (fold and not variants(ch).isdisjoint(token[2]))
-    candidates = variants(ch) if fold else (ch,)
-    hit = any(lo <= v <= hi for v in candidates for lo, hi in token[2])
+    seen = variants(ch) if fold else {ch}
+    hit = False
+    for lo, hi in token[2]:
+        if fold and lo == hi:
+            hit = not seen.isdisjoint(variants(lo))
+        else:
+            hit = any(lo <= v <= hi for v in seen)
+        if hit:
+            break
     return hit != token[1]
 
 
@@ -269,6 +278,15 @@ def expected_count(api, repo, number, auth, fetch, head_sha):
 
 def list_names(api, repo, number, auth, fetch, head_sha):
     expected = expected_count(api, repo, number, auth, fetch, head_sha)
+    names = list_pages(api, repo, number, auth, fetch, expected)
+    # A force-push between the metadata read and the listing can swap the
+    # head under us, so the metadata has to be unchanged afterwards.
+    if expected_count(api, repo, number, auth, fetch, head_sha) != expected:
+        raise Doubt("moved")
+    return names
+
+
+def list_pages(api, repo, number, auth, fetch, expected):
     names = []
     files = 0
     started = time.monotonic()
