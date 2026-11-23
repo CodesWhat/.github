@@ -186,7 +186,7 @@ jobs:
 
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: ${{ inputs.test-egress-policy }}
           allowed-endpoints: ${{ inputs.test-allowed-endpoints }}
@@ -226,7 +226,7 @@ jobs:
 
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: ${{ inputs.lint-egress-policy }}
           allowed-endpoints: ${{ inputs.lint-allowed-endpoints }}
@@ -257,7 +257,7 @@ jobs:
 
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: ${{ inputs.govulncheck-egress-policy }}
           allowed-endpoints: ${{ inputs.govulncheck-allowed-endpoints }}
@@ -289,7 +289,7 @@ jobs:
 
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: ${{ inputs.workflow-security-egress-policy }}
           allowed-endpoints: ${{ inputs.workflow-security-allowed-endpoints }}
@@ -316,7 +316,7 @@ jobs:
 
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: ${{ inputs.commit-message-egress-policy }}
           allowed-endpoints: ${{ inputs.commit-message-allowed-endpoints }}
@@ -343,7 +343,7 @@ jobs:
 
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: ${{ inputs.goreleaser-egress-policy }}
           allowed-endpoints: ${{ inputs.goreleaser-allowed-endpoints }}
@@ -376,7 +376,7 @@ jobs:
 
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: ${{ inputs.codeql-egress-policy }}
           allowed-endpoints: ${{ inputs.codeql-allowed-endpoints }}
@@ -387,7 +387,7 @@ jobs:
           persist-credentials: false
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@1fc58d04a4d4374f921bdac573c3811c240f9c26 # v4.39.2
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           languages: actions, go
           queries: security-and-quality
@@ -404,7 +404,7 @@ jobs:
         run: ./scripts/ci/go-codeql-build.sh
 
       - name: Analyze with CodeQL
-        uses: github/codeql-action/analyze@1fc58d04a4d4374f921bdac573c3811c240f9c26 # v4.39.2
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
 
   qlty:
     name: Qlty Check
@@ -416,7 +416,7 @@ jobs:
 
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: ${{ inputs.qlty-egress-policy }}
           allowed-endpoints: ${{ inputs.qlty-allowed-endpoints }}
@@ -448,7 +448,7 @@ jobs:
 
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: ${{ inputs.fuzz-egress-policy }}
           allowed-endpoints: ${{ inputs.fuzz-allowed-endpoints }}
