@@ -512,6 +512,120 @@ class ChangesGateContractTest(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_readme_caller_condition_fails_open_on_gate_failure(self):
+        readme = (ACTION_DIR / "README.md").read_text(encoding="utf-8")
+        flat = " ".join(readme.split())
+        self.assertIn("needs.changes.result != 'success'", flat)
+        self.assertIn("!cancelled()", flat)
+        self.assertIn("needs.changes.outputs.run != 'false'", flat)
+        self.assertNotIn("if: needs.changes.outputs.run == 'true'", readme)
+
+    def test_off_host_next_link_is_never_fetched(self):
+        files = [entry("docs/{0}.md".format(i)) for i in range(150)]
+        calls = []
+
+        def fetch(url, auth):
+            calls.append((url, auth))
+            if url.endswith("/pulls/7"):
+                return {"changed_files": 150, "head": {"sha": HEAD}}, None
+            if url.startswith("https://evil.example/"):
+                return files[100:], None
+            return files[:100], '<https://evil.example/next?page=2>; rel="next"'
+        out, _ = run_gate("pull_request", fetch=fetch)
+        self.assertRun("true", out)
+        self.assertEqual(
+            [API + "/repos/CodesWhat/example/pulls/7",
+             API + "/repos/CodesWhat/example/pulls/7/files?per_page=100"],
+            [url for url, _ in calls])
+        self.assertTrue(all(auth == "secret-value" for _, auth in calls))
+
+    def test_action_output_and_env_wiring(self):
+        lines = (ACTION_DIR / "action.yml").read_text(encoding="utf-8").splitlines()
+        self.assertIn("    value: ${{ steps.gate.outputs.run }}", lines)
+        self.assertIn("    - id: gate", lines)
+        for expected in (
+                "        CHANGES_GATE_PATTERNS: ${{ inputs.patterns }}",
+                "        CHANGES_GATE_AUTH: ${{ inputs.github-token }}",
+                "        CHANGES_GATE_EVENT_NAME: ${{ github.event_name }}"):
+            self.assertIn(expected, lines)
+        step = lines.index("    - id: gate")
+        env = lines.index("      env:", step)
+        run = next(i for i, l in enumerate(lines) if l.strip().startswith("run: python3"))
+        self.assertTrue(step < env < run)
+        for expected in ("CHANGES_GATE_PATTERNS", "CHANGES_GATE_AUTH", "CHANGES_GATE_EVENT_NAME"):
+            self.assertTrue(any(expected in l for l in lines[env:run]))
+
+    def test_invalid_pull_numbers_rejected_before_fetch(self):
+        for number in (True, False, 0, -1):
+            with self.subTest(number=number):
+                calls = []
+
+                def fetch(url, auth):
+                    calls.append(url)
+                    return {}, None
+                out, _ = run_gate("pull_request", fetch=fetch, number=number)
+                self.assertRun("true", out)
+                self.assertEqual([], calls)
+
+    def test_missing_event_file_runs(self):
+        calls = []
+
+        def fetch(url, auth):
+            calls.append(url)
+            return {}, None
+        out, _ = run_gate("pull_request", fetch=fetch, write_event=False)
+        self.assertRun("true", out)
+        self.assertEqual([], calls)
+
+    def test_missing_pull_request_key_runs(self):
+        for payload in ({}, {"pull_request": {}}, {"pull_request": {"head": {"sha": HEAD}}},
+                        {"pull_request": None}, []):
+            with self.subTest(payload=payload):
+                calls = []
+
+                def fetch(url, auth):
+                    calls.append(url)
+                    return {}, None
+                out, _ = run_gate("pull_request", fetch=fetch, payload=payload)
+                self.assertRun("true", out)
+                self.assertEqual([], calls)
+
+    def test_listing_cap_with_underreported_count(self):
+        files = [entry("docs/{0}.md".format(i)) for i in range(3000)]
+        pages = []
+        base = pager(files)
+
+        def fetch(url, auth):
+            if "/files" in url:
+                pages.append(url)
+            return base(url, auth)
+        fetch_pr = lambda url, auth: ({"changed_files": 2999, "head": {"sha": HEAD}}, None) \
+            if url.endswith("/pulls/7") else fetch(url, auth)
+        with self.assertRaises(gate.Doubt) as caught:
+            gate.list_names(API, "CodesWhat/example", 7, "secret-value", fetch_pr, HEAD)
+        self.assertEqual("cap", str(caught.exception))
+        self.assertEqual(30, len(pages))
+
+    def test_pagination_loop_bound(self):
+        old = gate.FILE_CAP
+        gate.FILE_CAP = 4000
+        self.addCleanup(setattr, gate, "FILE_CAP", old)
+        files = [entry("docs/{0}.md".format(i)) for i in range(4000)]
+        base = pager(files)
+        pages = []
+
+        def fetch(url, auth):
+            if url.endswith("/pulls/7"):
+                return {"changed_files": 3999, "head": {"sha": HEAD}}, None
+            pages.append(url)
+            if len(pages) > gate.MAX_PAGES + 1:
+                self.fail("fetched past the page bound")
+            return base(url, auth)
+        with self.assertRaises(gate.Doubt) as caught:
+            gate.list_names(API, "CodesWhat/example", 7, "secret-value", fetch, HEAD)
+        self.assertEqual("cap", str(caught.exception))
+        self.assertEqual(gate.MAX_PAGES + 1, len(pages))
+
     def test_action_shape(self):
         action = (ACTION_DIR / "action.yml").read_text(encoding="utf-8")
         for expected in ("using: composite", "required: true",

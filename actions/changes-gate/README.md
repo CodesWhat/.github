@@ -26,7 +26,10 @@ jobs:
 
   macos-build:
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run != 'false') }}
+    if: >-
+      ${{ !cancelled() &&
+      (needs.changes.result != 'success' ||
+      needs.changes.outputs.run != 'false') }}
     runs-on: macos-26
     steps:
       - run: echo "expensive work"
