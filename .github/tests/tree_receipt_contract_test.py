@@ -12,6 +12,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import unittest.mock
 import urllib.error
 
 
@@ -36,6 +37,9 @@ WF = ".github/workflows/ci.yml"
 WF_REF = "{0}/{1}@refs/pull/7/merge".format(REPO, WF)
 TREE = "a" * 40
 OTHER_TREE = "b" * 40
+BLOB = "c" * 40
+OTHER_BLOB = "d" * 40
+MAIN = "e" * 40
 HEAD = "1" * 40
 PARENT_A = "2" * 40
 PARENT_B = "3" * 40
@@ -60,7 +64,7 @@ def status(tree=TREE, context="tree-receipt/" + WF, state="success",
 def run_obj(sha, **over):
     data = {
         "repository": {"full_name": REPO}, "path": WF + "@refs/pull/7/merge",
-        "conclusion": "success", "status": "completed", "head_sha": sha,
+        "event": "push", "conclusion": "success", "status": "completed", "head_sha": sha,
         "created_at": FRESH,
     }
     data.update(over)
@@ -93,9 +97,10 @@ class Api:
         match = re.search(r"(?:^|&)page=([0-9]+)", query)
         if match:
             page = int(match.group(1))
-        if path not in self.routes:
+        key = rest if rest in self.routes else path
+        if key not in self.routes:
             raise urllib.error.HTTPError(url, 404, "nf", {}, None)
-        value = self.routes[path]
+        value = self.routes[key]
         if isinstance(value, Exception):
             raise value
         if isinstance(value, Pages):
@@ -103,10 +108,12 @@ class Api:
         return value
 
 
-def git_stub(tree=TREE, head=HEAD, parents=(PARENT_A,)):
+def git_stub(tree=TREE, head=HEAD, parents=(PARENT_A,), shallow="false"):
     def git(args):
-        if args == ["rev-parse", "HEAD^{tree}"]:
+        if len(args) == 2 and args[0] == "rev-parse" and args[1].endswith("^{tree}"):
             return tree
+        if args == ["rev-parse", "--is-shallow-repository"]:
+            return shallow
         if args == ["rev-parse", "HEAD"]:
             return head
         if args == ["rev-parse", "HEAD^@"]:
@@ -123,12 +130,29 @@ def run_path(run_id=500):
     return "/repos/{0}/actions/runs/{1}".format(REPO, run_id)
 
 
+def commit_path(sha):
+    return "/repos/{0}/git/commits/{1}".format(REPO, sha)
+
+
+def contents_path(ref):
+    return "/repos/{0}/contents/{1}?ref={2}".format(REPO, WF, ref)
+
+
+REPO_PATH = "/repos/" + REPO
+BRANCH_PATH = "/repos/{0}/branches/main".format(REPO)
+
+
 def good_routes(sha=PARENT_A, run_id=500):
     return {
         "/repos/{0}/commits/{1}/pulls".format(REPO, HEAD): [],
         stat_path(sha): [status(target=run_url(run_id))],
         run_path(run_id): run_obj(sha),
-        run_path(run_id) + "/jobs": jobs("success", "skipped"),
+        run_path(run_id) + "/jobs": jobs("success", "success"),
+        commit_path(sha): {"tree": {"sha": TREE}},
+        REPO_PATH: {"default_branch": "main"},
+        BRANCH_PATH: {"commit": {"sha": MAIN}},
+        contents_path(MAIN): {"type": "file", "sha": BLOB},
+        contents_path(sha): {"type": "file", "sha": BLOB},
     }
 
 
@@ -172,8 +196,9 @@ class VerifyTests(unittest.TestCase):
         self.assertEqual(expected, reuse_of(out), out)
 
     def test_valid_receipt_on_parent_reuses(self):
-        out, log, _ = run_verify(good_routes())
+        out, log, api = run_verify(good_routes())
         self.assertReuse("true", out)
+        self.assertIn(contents_path(MAIN), [c[len(API):] for c in api.calls])
         self.assertIn("evidence-run=" + run_url() + "\n", out)
         self.assertIn("candidate=" + PARENT_A, log)
         self.assertIn("created_at=" + FRESH, log)
@@ -234,6 +259,7 @@ class VerifyTests(unittest.TestCase):
             "conclusion": run_obj(PARENT_A, conclusion="failure"),
             "status": run_obj(PARENT_A, status="in_progress"),
             "head_sha": run_obj(PARENT_A, head_sha=PARENT_B),
+            "no-event": run_obj(PARENT_A, event=None),
             "repo": run_obj(PARENT_A, repository={"full_name": "CodesWhat/other"}),
             "old": run_obj(PARENT_A, created_at=OLD),
             "future": run_obj(PARENT_A, created_at="2026-11-23T12:00:00Z"),
@@ -256,7 +282,7 @@ class VerifyTests(unittest.TestCase):
 
     def test_bad_jobs(self):
         for conclusion in ("failure", "cancelled", "timed_out", "action_required",
-                           "startup_failure", None):
+                           "startup_failure", "skipped", "neutral", "stale", None, ""):
             with self.subTest(conclusion=conclusion):
                 routes = good_routes()
                 routes[run_path(500) + "/jobs"] = jobs("success", conclusion)
@@ -277,7 +303,9 @@ class VerifyTests(unittest.TestCase):
         self.assertReuse("false", run_verify(routes)[0])
 
     def test_api_error_at_each_step(self):
-        for key in (stat_path(PARENT_A), run_path(500), run_path(500) + "/jobs"):
+        for key in (stat_path(PARENT_A), run_path(500), run_path(500) + "/jobs",
+                    commit_path(PARENT_A), REPO_PATH, BRANCH_PATH,
+                    contents_path(MAIN), contents_path(PARENT_A)):
             with self.subTest(step=key):
                 routes = good_routes()
                 routes[key] = OSError("boom")
@@ -414,6 +442,10 @@ class VerifyTests(unittest.TestCase):
                 stat_path(feature): [status(tree=tree)],
                 run_path(500): run_obj(feature, created_at=created),
                 run_path(500) + "/jobs": jobs("success"),
+                commit_path(feature): {"tree": {"sha": tree}},
+                REPO_PATH: {"default_branch": "main"},
+                BRANCH_PATH: {"commit": {"sha": MAIN}},
+                "/repos/{0}/contents/{1}".format(REPO, WF): {"type": "file", "sha": BLOB},
             }
 
             class Handler(http.server.BaseHTTPRequestHandler):
@@ -474,13 +506,244 @@ class VerifyTests(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
 
+    def test_forged_description_with_other_tree_commit(self):
+        # Green push run, receipt claims TREE, but the run's commit has another tree.
+        routes = good_routes()
+        routes[commit_path(PARENT_A)] = {"tree": {"sha": OTHER_TREE}}
+        self.assertReuse("false", run_verify(routes)[0])
+        routes = good_routes(PARENT_B)
+        routes[commit_path(PARENT_B)] = {"tree": {"sha": OTHER_TREE}}
+        out, _, _ = run_verify(routes, event="pull_request", pr_head=PARENT_B)
+        self.assertReuse("false", out)
+
+    def test_positive_controls(self):
+        pr_head = "4" * 40
+        routes = good_routes(pr_head)
+        routes[stat_path(PARENT_A)] = []
+        routes["/repos/{0}/commits/{1}/pulls".format(REPO, HEAD)] = [{"head": {"sha": pr_head}}]
+        self.assertReuse("true", run_verify(routes)[0])
+        # Promotion-style push: merge commit with main and dev parents.
+        routes = good_routes(PARENT_B)
+        routes[stat_path(PARENT_A)] = []
+        out, log, _ = run_verify(routes, git=git_stub(parents=(PARENT_A, PARENT_B)))
+        self.assertReuse("true", out)
+        self.assertIn("candidate=" + PARENT_B, log)
+        # Pull request caller citing a push run on the PR head.
+        out, _, _ = run_verify(good_routes(PARENT_B), event="pull_request", pr_head=PARENT_B)
+        self.assertReuse("true", out)
+
+    def test_workflow_blob_differs_from_default_branch(self):
+        routes = good_routes()
+        routes[contents_path(PARENT_A)] = {"type": "file", "sha": OTHER_BLOB}
+        self.assertReuse("false", run_verify(routes)[0])
+
+    def test_default_branch_compared_by_head_sha_not_name(self):
+        routes = good_routes()
+        del routes[contents_path(MAIN)]
+        routes["/repos/{0}/contents/{1}?ref=main".format(REPO, WF)] = {"sha": BLOB}
+        self.assertReuse("false", run_verify(routes)[0])
+
+    def test_malformed_lookups(self):
+        bad_values = ({}, [], None, {"sha": "xyz"}, {"sha": 5}, {"tree": {}},
+                      {"tree": {"sha": "short"}}, {"default_branch": ""},
+                      {"commit": {"sha": "short"}}, "text")
+        for key in (commit_path(PARENT_A), REPO_PATH, BRANCH_PATH,
+                    contents_path(MAIN), contents_path(PARENT_A)):
+            for bad in bad_values:
+                with self.subTest(key=key, bad=bad):
+                    routes = good_routes()
+                    routes[key] = bad
+                    self.assertReuse("false", run_verify(routes)[0])
+
+    def test_non_push_source_runs_rejected(self):
+        for event in ("pull_request", "pull_request_target", "schedule",
+                      "workflow_dispatch", "merge_group", "workflow_call", 5):
+            with self.subTest(event=event):
+                routes = good_routes()
+                routes[run_path(500)] = run_obj(PARENT_A, event=event)
+                out, _, api = run_verify(routes)
+                self.assertReuse("false", out)
+                self.assertFalse(any("/jobs" in c or "/git/commits" in c for c in api.calls))
+
+    def test_skipped_job_rejected_all_success_accepted(self):
+        routes = good_routes()
+        routes[run_path(500) + "/jobs"] = jobs("success", "skipped")
+        self.assertReuse("false", run_verify(routes)[0])
+        routes[run_path(500) + "/jobs"] = jobs("success", "success", "success")
+        self.assertReuse("true", run_verify(routes)[0])
+
+    def test_run_checks_capped_at_five(self):
+        def routes_for(valid):
+            routes = good_routes()
+            routes[stat_path(PARENT_A)] = [status(target=run_url(500 + i)) for i in range(6)]
+            for i in range(6):
+                routes[run_path(500 + i)] = run_obj(PARENT_A, conclusion="failure")
+                routes[run_path(500 + i) + "/jobs"] = jobs("success")
+            routes[run_path(500 + valid)] = run_obj(PARENT_A)
+            return routes
+        out, log, api = run_verify(routes_for(5))
+        self.assertReuse("false", out)
+        self.assertIn("run check limit reached", log)
+        self.assertNotIn(run_path(505), [c[len(API):] for c in api.calls])
+        out, _, _ = run_verify(routes_for(4))
+        self.assertReuse("true", out)
+
+    def test_duplicate_runs_checked_once(self):
+        routes = good_routes()
+        routes[stat_path(PARENT_A)] = [status(), status(), status()]
+        routes[run_path(500)] = run_obj(PARENT_A, conclusion="failure")
+        out, _, api = run_verify(routes)
+        self.assertReuse("false", out)
+        self.assertEqual(1, sum(1 for c in api.calls if c.endswith("/actions/runs/500")))
+
+    def test_verify_deadline(self):
+        for last, expected in ((120, "true"), (121, "false")):
+            with self.subTest(last=last):
+                with unittest.mock.patch.object(verify.time, "monotonic",
+                                                side_effect=[0, last]):
+                    out, log, _ = run_verify(good_routes())
+                self.assertReuse(expected, out)
+                if expected == "false":
+                    self.assertIn("deadline", log)
+
+    def test_malformed_pulls_response(self):
+        for bad in ({"x": 1}, "text", [{"head": {}}], [{}], [None], [{"head": {"sha": 5}}]):
+            with self.subTest(bad=bad):
+                routes = good_routes()
+                routes["/repos/{0}/commits/{1}/pulls".format(REPO, HEAD)] = bad
+                self.assertReuse("false", run_verify(routes)[0])
+
+    def test_invalid_candidate_sha_rejected_before_status_lookup(self):
+        for bad in ("abc", "g" * 40, "A" * 40, "1" * 39, "1" * 41, 12, None):
+            with self.subTest(bad=bad, source="parent"):
+                git = git_stub(parents=(bad,)) if isinstance(bad, str) else None
+                if git is None:
+                    continue
+                out, _, api = run_verify(good_routes(), git=git)
+                self.assertReuse("false", out)
+                self.assertFalse(any("/statuses" in c for c in api.calls))
+            with self.subTest(bad=bad, source="pull"):
+                routes = good_routes()
+                routes["/repos/{0}/commits/{1}/pulls".format(REPO, HEAD)] = [
+                    {"head": {"sha": bad}}]
+                out, _, api = run_verify(routes)
+                self.assertReuse("false", out)
+                self.assertFalse(any("/statuses" in c for c in api.calls))
+            with self.subTest(bad=bad, source="pr-event"):
+                with tempfile.TemporaryDirectory() as tmp:
+                    env = base_env(tmp, "pull_request")
+                    Path(env["GITHUB_EVENT_PATH"]).write_text(json.dumps(
+                        {"pull_request": {"head": {"sha": bad}}}))
+                    api = Api(good_routes())
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        verify.main(env, git_stub(), api, NOW)
+                    self.assertReuse("false", Path(env["GITHUB_OUTPUT"]).read_text())
+                    self.assertFalse(any("/statuses" in c for c in api.calls))
+
+    def test_bad_created_at_rejected_without_jobs_fetch(self):
+        for bad in (None, "", "yesterday", 5, "2026-11-21", "2026-11-21T12:00:00+00:00"):
+            with self.subTest(bad=bad):
+                routes = good_routes()
+                routes[run_path(500)] = run_obj(PARENT_A, created_at=bad)
+                out, _, api = run_verify(routes)
+                self.assertReuse("false", out)
+                self.assertFalse(any("/jobs" in c for c in api.calls))
+        routes = good_routes()
+        run = run_obj(PARENT_A)
+        del run["created_at"]
+        routes[run_path(500)] = run
+        out, _, api = run_verify(routes)
+        self.assertReuse("false", out)
+        self.assertFalse(any("/jobs" in c for c in api.calls))
+
+    def test_malformed_pull_request_event_makes_no_api_calls(self):
+        for content in ("not json", "[]", "{}", json.dumps({"pull_request": []}),
+                        json.dumps({"pull_request": {"head": {}}}), None):
+            with self.subTest(content=content):
+                with tempfile.TemporaryDirectory() as tmp:
+                    env = base_env(tmp, "pull_request")
+                    if content is None:
+                        os.unlink(env["GITHUB_EVENT_PATH"])
+                    else:
+                        Path(env["GITHUB_EVENT_PATH"]).write_text(content)
+                    api = Api(good_routes())
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        verify.main(env, git_stub(), api, NOW)
+                    self.assertReuse("false", Path(env["GITHUB_OUTPUT"]).read_text())
+                    self.assertEqual([], api.calls)
+
+    def test_job_pagination_limit(self):
+        def page(total):
+            return {"total_count": total, "jobs": [{"conclusion": "success"}] * 100}
+        routes = good_routes()
+        routes[run_path(500) + "/jobs"] = Pages(*[page(501)] * 6)
+        out, _, api = run_verify(routes)
+        self.assertReuse("false", out)
+        self.assertEqual(5, sum(1 for c in api.calls if "/jobs" in c))
+        routes[run_path(500) + "/jobs"] = Pages(*[page(500)] * 6)
+        out, _, api = run_verify(routes)
+        self.assertReuse("true", out)
+        self.assertEqual(5, sum(1 for c in api.calls if "/jobs" in c))
+
+    def test_shallow_clone_logs_and_keeps_pr_head_candidates(self):
+        pr_head = "4" * 40
+        routes = good_routes(pr_head)
+        routes["/repos/{0}/commits/{1}/pulls".format(REPO, HEAD)] = [{"head": {"sha": pr_head}}]
+        out, log, _ = run_verify(routes, git=git_stub(parents=(), shallow="true"))
+        self.assertReuse("true", out)
+        self.assertIn("shallow checkout, parents unavailable", log)
+        out, log, _ = run_verify(routes, git=git_stub(parents=(), shallow="false"))
+        self.assertNotIn("shallow checkout", log)
+
+    def test_redirect_is_refused_without_following(self):
+        seen = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen.append((self.path, self.headers.get("Authorization")))
+                self.send_response(302)
+                self.send_header("Location", "/elsewhere")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                env = base_env(tmp, "push", NO_PROXY="127.0.0.1", no_proxy="127.0.0.1",
+                               GITHUB_API_URL="http://127.0.0.1:{0}".format(
+                                   server.server_address[1]))
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    verify.main(env, git_stub(), verify.fetch_json, NOW)
+                out = Path(env["GITHUB_OUTPUT"]).read_text()
+            self.assertReuse("false", out)
+            self.assertIn("redirect", buf.getvalue())
+            self.assertEqual(1, len(seen), seen)
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_readme_wiring_guards_verify_failure(self):
+        readme = (BASE / "README.md").read_text(encoding="utf-8")
+        self.assertIn("needs.verify.result != 'success'", readme)
+        self.assertIn("!cancelled()", readme)
+        self.assertIn("fetch-depth: 2", readme)
+        self.assertNotIn("tested-tree", readme.replace("`tested-tree` input", ""))
+
     def test_action_shape(self):
         action = (BASE / "verify" / "action.yml").read_text(encoding="utf-8")
         for expected in ("using: composite", 'default: "168"',
                          "default: ${{ github.token }}",
                          "value: ${{ steps.verify.outputs.reuse }}",
                          "value: ${{ steps.verify.outputs.evidence-run }}",
-                         'run: python3 "$GITHUB_ACTION_PATH/verify.py"'):
+                         "TREE_RECEIPT_MAX_AGE_HOURS: ${{ inputs.max-age-hours }}",
+                         "TREE_RECEIPT_AUTH: ${{ inputs.github-token }}",
+                         "TREE_RECEIPT_EVENT_NAME: ${{ github.event_name }}",
+                         'run: python3 -I "$GITHUB_ACTION_PATH/verify.py"'):
             self.assertIn(expected, action)
         for line in action.splitlines():
             if line.strip().startswith("run:"):
@@ -499,10 +762,10 @@ class Recorder:
             raise OSError("boom")
 
 
-def run_record(event="push", tree=TREE, git=None, recorder=None, event_data=None, **extra):
+def run_record(event="push", git=None, recorder=None, event_data=None, **extra):
     recorder = recorder or Recorder()
     with tempfile.TemporaryDirectory() as tmp:
-        env = base_env(tmp, event, TREE_RECEIPT_TESTED_TREE=tree, **extra)
+        env = base_env(tmp, event, **extra)
         if event_data is not None:
             Path(env["GITHUB_EVENT_PATH"]).write_text(json.dumps(event_data))
         buf = io.StringIO()
@@ -524,51 +787,57 @@ class RecordTests(unittest.TestCase):
         }, payload)
         self.assertNotIn("secret-value", log)
 
-    def test_pull_request_writes_on_head_sha(self):
-        head = "5" * 40
-        _, _, rec = run_record(event="pull_request", event_data={"pull_request": {
-            "head": {"sha": head, "repo": {"full_name": REPO}},
-            "base": {"repo": {"full_name": REPO}}}})
-        self.assertTrue(rec.calls[0][0].endswith("/statuses/" + head))
+    def test_tree_comes_from_github_sha_commit(self):
+        asked = []
+        def git(args):
+            asked.append(args)
+            return OTHER_TREE
+        _, _, rec = run_record(git=git)
+        self.assertEqual([["rev-parse", HEAD + "^{tree}"]], asked)
+        self.assertEqual("tree=" + OTHER_TREE, rec.calls[0][2]["description"])
 
-    def test_fork_pull_request_skipped(self):
-        for event in ("pull_request", "pull_request_target"):
+    def test_tested_tree_override_is_ignored(self):
+        _, _, rec = run_record(TREE_RECEIPT_TESTED_TREE=OTHER_TREE, git=git_stub(tree=TREE))
+        self.assertEqual("tree=" + TREE, rec.calls[0][2]["description"])
+
+    def test_non_push_events_write_nothing(self):
+        pr = {"pull_request": {"head": {"sha": HEAD, "repo": {"full_name": REPO}},
+                               "base": {"repo": {"full_name": REPO}}}}
+        for event in ("pull_request", "pull_request_target", "schedule",
+                      "workflow_dispatch", "merge_group", "workflow_call", ""):
             with self.subTest(event=event):
-                code, log, rec = run_record(event=event, event_data={"pull_request": {
-                    "head": {"sha": HEAD, "repo": {"full_name": "someone/example"}},
-                    "base": {"repo": {"full_name": REPO}}}})
+                code, log, rec = run_record(event=event, event_data=pr)
                 self.assertEqual(0, code)
                 self.assertEqual([], rec.calls)
-                self.assertIn("skipped (fork)", log)
-
-    def test_malformed_pull_request_event_skipped(self):
-        code, _, rec = run_record(event="pull_request", event_data={"pull_request": {}})
-        self.assertEqual(0, code)
-        self.assertEqual([], rec.calls)
+                self.assertIn("skipped (event", log)
 
     def test_write_failure_exits_zero(self):
         code, log, _ = run_record(recorder=Recorder(fail=True))
         self.assertEqual(0, code)
         self.assertIn("write failed", log)
 
-    def test_invalid_tested_tree_rejected(self):
-        for bad in ("abc", "A" * 40, "g" * 40, "a" * 41, "a" * 40 + "\n--", TREE[:-1]):
+    def test_invalid_tree_from_git_rejected(self):
+        for bad in ("abc", "A" * 40, "g" * 40, "a" * 41, "a" * 40 + "\n--", TREE[:-1], ""):
             with self.subTest(tree=bad):
-                code, log, rec = run_record(tree=bad)
+                code, log, rec = run_record(git=git_stub(tree=bad))
                 self.assertEqual(0, code)
                 self.assertEqual([], rec.calls)
                 self.assertIn("invalid-tree", log)
 
-    def test_default_tree_from_git(self):
-        _, _, rec = run_record(tree="", git=git_stub(tree=OTHER_TREE))
-        self.assertEqual("tree=" + OTHER_TREE, rec.calls[0][2]["description"])
+    def test_invalid_github_sha_skips(self):
+        for bad in ("abc", "G" * 40, HEAD + "0", ""):
+            with self.subTest(sha=bad):
+                _, log, rec = run_record(GITHUB_SHA=bad)
+                self.assertEqual([], rec.calls)
+                self.assertIn("skipped (sha)", log)
 
-    def test_default_tree_git_failure_skips(self):
+    def test_git_failure_skips(self):
         def git(args):
             raise subprocess.CalledProcessError(128, "git")
-        code, _, rec = run_record(tree="", git=git)
+        code, log, rec = run_record(git=git)
         self.assertEqual(0, code)
         self.assertEqual([], rec.calls)
+        self.assertIn("no-tree", log)
 
     def test_bad_workflow_ref_or_run_id_skips(self):
         for extra in ({"GITHUB_WORKFLOW_REF": "junk"}, {"GITHUB_RUN_ID": "abc"},
@@ -598,32 +867,81 @@ class RecordTests(unittest.TestCase):
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:
             with tempfile.TemporaryDirectory() as tmp:
+                genv = {"PATH": os.environ.get("PATH", ""), "HOME": tmp,
+                        "GIT_CONFIG_NOSYSTEM": "1", "GIT_AUTHOR_NAME": "t",
+                        "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t",
+                        "GIT_COMMITTER_EMAIL": "t@example.com"}
+                work = Path(tmp) / "work"
+                work.mkdir()
+
+                def git(*args):
+                    return subprocess.run(["git"] + list(args), cwd=work, env=genv,
+                                          capture_output=True, text=True,
+                                          check=True).stdout.strip()
+                git("init", "-q", "-b", "main")
+                (work / "a.txt").write_text("a")
+                git("add", "a.txt")
+                git("commit", "-q", "-m", "a")
+                sha = git("rev-parse", "HEAD")
+                tree = git("rev-parse", "HEAD^{tree}")
                 env = {
-                    "PATH": os.environ.get("PATH", ""),
+                    "PATH": os.environ.get("PATH", ""), "HOME": tmp,
                     "NO_PROXY": "127.0.0.1", "no_proxy": "127.0.0.1",
                     "TREE_RECEIPT_EVENT_NAME": "push", "TREE_RECEIPT_AUTH": "secret-value",
-                    "TREE_RECEIPT_TESTED_TREE": TREE,
                     "GITHUB_REPOSITORY": REPO, "GITHUB_WORKFLOW_REF": WF_REF,
-                    "GITHUB_SERVER_URL": SERVER, "GITHUB_RUN_ID": "900", "GITHUB_SHA": HEAD,
+                    "GITHUB_SERVER_URL": SERVER, "GITHUB_RUN_ID": "900", "GITHUB_SHA": sha,
                     "GITHUB_API_URL": "http://127.0.0.1:{0}".format(server.server_address[1]),
                 }
                 proc = subprocess.run(
                     [sys.executable, "-I", str(BASE / "record" / "record.py")],
-                    cwd=tmp, env=env, capture_output=True, text=True, timeout=60)
-            self.assertEqual(0, proc.returncode, proc.stderr)
-            (path, auth, payload), = seen
-            self.assertEqual("/repos/{0}/statuses/{1}".format(REPO, HEAD), path)
-            self.assertEqual("Bearer secret-value", auth)
-            self.assertEqual("tree=" + TREE, payload["description"])
-            self.assertEqual("tree-receipt/" + WF, payload["context"])
-            self.assertNotIn("secret-value", proc.stdout + proc.stderr)
-            # An unreachable server must still exit 0.
-            env["GITHUB_API_URL"] = "http://127.0.0.1:1"
-            proc = subprocess.run(
-                [sys.executable, "-I", str(BASE / "record" / "record.py")],
-                cwd=tempfile.gettempdir(), env=env, capture_output=True, text=True, timeout=60)
-            self.assertEqual(0, proc.returncode, proc.stderr)
-            self.assertIn("write failed", proc.stdout)
+                    cwd=work, env=env, capture_output=True, text=True, timeout=60)
+                self.assertEqual(0, proc.returncode, proc.stderr)
+                (path, auth, payload), = seen
+                self.assertEqual("/repos/{0}/statuses/{1}".format(REPO, sha), path)
+                self.assertEqual("Bearer secret-value", auth)
+                self.assertEqual("tree=" + tree, payload["description"])
+                self.assertEqual("tree-receipt/" + WF, payload["context"])
+                self.assertNotIn("secret-value", proc.stdout + proc.stderr)
+                # An unreachable server must still exit 0.
+                env["GITHUB_API_URL"] = "http://127.0.0.1:1"
+                proc = subprocess.run(
+                    [sys.executable, "-I", str(BASE / "record" / "record.py")],
+                    cwd=work, env=env, capture_output=True, text=True, timeout=60)
+                self.assertEqual(0, proc.returncode, proc.stderr)
+                self.assertIn("write failed", proc.stdout)
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_redirect_is_refused_without_following(self):
+        seen = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                seen.append(self.path)
+                self.send_response(307)
+                self.send_header("Location", "/elsewhere")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                env = base_env(tmp, "push", NO_PROXY="127.0.0.1", no_proxy="127.0.0.1",
+                               GITHUB_API_URL="http://127.0.0.1:{0}".format(
+                                   server.server_address[1]))
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    code = record.main(env, git_stub())
+            self.assertEqual(0, code)
+            self.assertIn("write failed", buf.getvalue())
+            self.assertEqual(1, len(seen), seen)
         finally:
             server.shutdown()
             server.server_close()
@@ -631,9 +949,12 @@ class RecordTests(unittest.TestCase):
     def test_action_shape(self):
         action = (BASE / "record" / "action.yml").read_text(encoding="utf-8")
         for expected in ("using: composite", "default: ${{ github.token }}",
-                         "TREE_RECEIPT_TESTED_TREE: ${{ inputs.tested-tree }}",
-                         'run: python3 "$GITHUB_ACTION_PATH/record.py"'):
+                         "TREE_RECEIPT_AUTH: ${{ inputs.github-token }}",
+                         "TREE_RECEIPT_EVENT_NAME: ${{ github.event_name }}",
+                         'run: python3 -I "$GITHUB_ACTION_PATH/record.py"'):
             self.assertIn(expected, action)
+        self.assertNotIn("tested-tree", action)
+        self.assertNotIn("TESTED_TREE", action)
         for line in action.splitlines():
             if line.strip().startswith("run:"):
                 self.assertNotIn("${{", line)

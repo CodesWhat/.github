@@ -6,9 +6,9 @@ push to main). These two composite actions let later events reuse the first
 run's result and fall back to a full run on any doubt.
 
 - `verify` runs first. It outputs `reuse=true` only when a trusted earlier
-  run verified exactly this tree.
-- `record` runs last, in a final gate job, and writes the receipt that a later
-  `verify` looks for.
+  push run verified exactly this tree.
+- `record` runs last, in a final gate job on push events, and writes the
+  receipt that a later `verify` looks for.
 
 Required check names keep reporting. Callers skip the expensive jobs with a
 job-level `if`, and a skipped job reports success to branch protection.
@@ -31,13 +31,14 @@ jobs:
     steps:
       - uses: actions/checkout@<full sha>
         with:
+          fetch-depth: 2
           persist-credentials: false
       - id: receipt
         uses: CodesWhat/.github/actions/tree-receipt/verify@<full sha>
 
   build-and-test:
     needs: verify
-    if: needs.verify.outputs.reuse != 'true'
+    if: ${{ !cancelled() && (needs.verify.result != 'success' || needs.verify.outputs.reuse != 'true') }}
     runs-on: macos-26
     steps:
       - uses: actions/checkout@<full sha>
@@ -56,7 +57,14 @@ jobs:
       - name: Fail on any failed or cancelled job
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+          REUSE: ${{ needs.verify.outputs.reuse }}
+          BUILD_RESULT: ${{ needs.build-and-test.result }}
         run: |
+          if [ "$BUILD_RESULT" = skipped ] \
+              && { [ "$VERIFY_RESULT" != success ] || [ "$REUSE" != true ]; }; then
+            echo "expensive job skipped without a verified reuse"; exit 1
+          fi
           for result in $RESULTS; do
             case "$result" in
               success|skipped) ;;
@@ -71,30 +79,55 @@ jobs:
         if: needs.build-and-test.result == 'success'
 ```
 
-The gate accepts `success` or `skipped` (skipped because the tree was reused)
-and fails on anything else. It records only when the expensive jobs actually
-ran and passed, so reused evidence is never re-recorded and its age is never
-refreshed. If `verify` itself fails, `reuse` is empty, the expensive jobs run,
-and the gate fails on the failed `verify` job.
+The gate accepts `success` or `skipped`, but a skipped expensive job only
+passes when `verify` succeeded with `reuse=true`. It records only when the
+expensive jobs actually ran and passed, so reused evidence is never
+re-recorded and its age is never refreshed.
 
-Pin both actions to a full commit SHA. Both need a checkout, and for
-`pull_request` runs that checkout is the synthetic merge commit. That commit's
-tree is the one tested, so that is the tree recorded and compared. Pass
-`tested-tree` to `record` if the tested tree is not `HEAD` in the gate job's
-workspace.
+A plain `if: needs.verify.outputs.reuse != 'true'` carries an implicit
+`success()`. If `verify` fails, the expensive job would be skipped and the
+gate would see only skipped jobs, so the job-level `if` above must run the
+expensive job whenever `verify` did not succeed.
 
-## Contract
+Pin both actions to a full commit SHA. Both need a checkout. For `push` runs
+`verify` also looks at the pushed commit's parents, so check out with
+`fetch-depth: 2`. On a shallow clone with no parents it logs `shallow checkout,
+parents unavailable` and still uses the associated PR heads.
+
+## Trust boundary
+
+Commit statuses are lookup hints only. Any workflow in the repository with
+`statuses: write` can post a status that names any tree and cites any run, so
+a status never proves anything by itself. `verify` accepts a cited run only
+when all of these hold:
+
+- the run was a `push` run, in this repository, of this workflow file, with
+  conclusion `success`, younger than `max-age-hours`, and `head_sha` equal to
+  the candidate commit;
+- the commit API reports that run commit's tree as exactly the tree checked
+  out now, which is also the tree the receipt claims;
+- the workflow file's blob at the run's commit equals its blob at the default
+  branch's current head (compared by immutable commit sha, not branch name);
+- every job in the run concluded `success`. Skipped, neutral, cancelled and
+  similar jobs reject the run.
+
+Pull request runs are never evidence, because their synthetic merge commit
+can't be authenticated against a tree the API reports. `schedule`,
+`workflow_dispatch`, `pull_request_target` and other source events are rejected
+for the same reason. Any API error, malformed data, redirect or ambiguity
+outputs `false`.
 
 `verify` inputs: `max-age-hours` (default `168`) and `github-token`. Outputs:
 `reuse` (exactly `true` or `false`) and `evidence-run` (the run URL, or empty).
 
-`verify` looks only at narrow candidates. For `pull_request` that is the PR
-head SHA. For `push` it is the pushed commit's parents (so a merge commit finds
-the dev head) plus the head SHAs of PRs associated with the pushed commit, up
-to 10 commits. Other events (`schedule`, `workflow_dispatch`, `merge_group`,
-`workflow_call`) always output `false`.
+Supported callers are `pull_request` and `push`; other events (`schedule`,
+`workflow_dispatch`, `merge_group`, `workflow_call`) always output `false`.
+Candidates are narrow. For `pull_request` that is the PR head SHA, compared
+against the caller's checkout tree. For `push` it is the pushed commit's parents
+(so a merge commit finds the dev head) plus the head SHAs of PRs associated
+with the pushed commit, up to 10 commits.
 
-A candidate's commit status is accepted only when all of these hold:
+A candidate's commit status is considered only when all of these hold:
 
 - the context is `tree-receipt/<this workflow's file path>`, so receipts never
   cross workflows;
@@ -102,21 +135,19 @@ A candidate's commit status is accepted only when all of these hold:
 - the description is exactly `tree=<current tree>`;
 - the target URL is a run URL for this repository.
 
-The run is then checked through the API. It must belong to this repository,
-have the same workflow path, be completed with conclusion `success`, have
-`head_sha` equal to the candidate, and be younger than `max-age-hours`. No job
-in it may be failed, cancelled, timed out, action-required or startup-failed.
-The age is the original run's age. Reuse never refreshes it.
+At most five distinct runs are checked, and the age is the original run's age.
+Reuse never refreshes it. The log carries only SHAs, counts, run ids and the
+decision.
 
-Any API error, malformed data or ambiguity outputs `false`. The log carries
-only SHAs, counts, run ids and the decision.
-
-`record` writes a `success` commit status on the commit the workflow ran for
-(the PR head for `pull_request`, else `github.sha`). Context is
-`tree-receipt/<workflow path>`, description is `tree=<40-hex tree>`, and the
-target URL is this run. It needs `statuses: write`. If the write fails it logs
-and exits 0, because a missing receipt only costs a full run later. Fork PRs
-never produce receipts, so they always run in full.
+`record` writes a `success` commit status on `github.sha`, and only for `push`
+events. The tree is that commit's tree (`git rev-parse "$GITHUB_SHA^{tree}"`).
+Context is `tree-receipt/<workflow path>`, description is `tree=<40-hex tree>`,
+and the target URL is this run. It needs `statuses: write` and a checkout that
+contains the pushed commit. `pull_request`, `pull_request_target` and every
+other event write no receipt and log why. The old `tested-tree` input and
+`TREE_RECEIPT_TESTED_TREE` override are removed, so the tree can't be chosen by
+the caller. If the write fails or is redirected it logs and exits 0, because a
+missing receipt only costs a full run later.
 
 ## What must not be gated by reuse
 

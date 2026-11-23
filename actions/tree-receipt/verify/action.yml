@@ -30,4 +30,4 @@ runs:
         TREE_RECEIPT_MAX_AGE_HOURS: ${{ inputs.max-age-hours }}
         TREE_RECEIPT_AUTH: ${{ inputs.github-token }}
         TREE_RECEIPT_EVENT_NAME: ${{ github.event_name }}
-      run: python3 "$GITHUB_ACTION_PATH/verify.py"
+      run: python3 -I "$GITHUB_ACTION_PATH/verify.py"
