@@ -1,0 +1,39 @@
+# Local-only config for the pre-push hook (lefthook.yml). No Qlty Cloud.
+config_version = "0"
+
+exclude_patterns = [
+  ".claude/**",
+  ".planning/**",
+  ".qlty/**",
+]
+
+[smells]
+mode = "comment"
+
+[[source]]
+name = "default"
+default = true
+
+[[plugin]]
+name = "actionlint"
+
+[[plugin]]
+name = "markdownlint"
+mode = "comment"
+
+[[plugin]]
+name = "ruff"
+drivers = ["lint"]
+
+[[plugin]]
+name = "shellcheck"
+
+[[plugin]]
+name = "zizmor"
+
+# profile/README.md is the org profile landing page, built from inline HTML
+# on purpose (centered banner and badges), so it has no top-level heading.
+[[triage]]
+match.rules = ["markdownlint:MD033", "markdownlint:MD041"]
+match.file_patterns = ["profile/README.md"]
+set.ignored = true

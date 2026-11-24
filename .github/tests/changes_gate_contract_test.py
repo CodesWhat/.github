@@ -550,10 +550,10 @@ class ChangesGateContractTest(unittest.TestCase):
             self.assertIn(expected, lines)
         step = lines.index("    - id: gate")
         env = lines.index("      env:", step)
-        run = next(i for i, l in enumerate(lines) if l.strip().startswith("run: python3"))
+        run = next(i for i, ln in enumerate(lines) if ln.strip().startswith("run: python3"))
         self.assertTrue(step < env < run)
         for expected in ("CHANGES_GATE_PATTERNS", "CHANGES_GATE_AUTH", "CHANGES_GATE_EVENT_NAME"):
-            self.assertTrue(any(expected in l for l in lines[env:run]))
+            self.assertTrue(any(expected in ln for ln in lines[env:run]))
 
     def test_invalid_pull_numbers_rejected_before_fetch(self):
         for number in (True, False, 0, -1):
@@ -599,8 +599,10 @@ class ChangesGateContractTest(unittest.TestCase):
             if "/files" in url:
                 pages.append(url)
             return base(url, auth)
-        fetch_pr = lambda url, auth: ({"changed_files": 2999, "head": {"sha": HEAD}}, None) \
-            if url.endswith("/pulls/7") else fetch(url, auth)
+        def fetch_pr(url, auth):
+            if url.endswith("/pulls/7"):
+                return {"changed_files": 2999, "head": {"sha": HEAD}}, None
+            return fetch(url, auth)
         with self.assertRaises(gate.Doubt) as caught:
             gate.list_names(API, "CodesWhat/example", 7, "secret-value", fetch_pr, HEAD)
         self.assertEqual("cap", str(caught.exception))
@@ -697,7 +699,7 @@ class ChangesGateContractTest(unittest.TestCase):
                          'run: python3 -I "$GITHUB_ACTION_PATH/changes_gate.py"'):
             self.assertIn(expected, action)
         # Expressions are only ever passed through env, never interpolated into run.
-        run_lines = [l for l in action.splitlines() if l.strip().startswith("run:")]
+        run_lines = [ln for ln in action.splitlines() if ln.strip().startswith("run:")]
         for line in run_lines:
             self.assertNotIn("${{", line)
         self.assertNotIn("uses:", action)

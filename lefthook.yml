@@ -10,3 +10,10 @@ pre-push:
   commands:
     validate:
       run: bash scripts/validate.sh
+    qlty:
+      run: |
+        if ! command -v qlty >/dev/null 2>&1; then
+          echo "qlty not installed; skipping"
+          exit 0
+        fi
+        qlty check --all --no-progress
