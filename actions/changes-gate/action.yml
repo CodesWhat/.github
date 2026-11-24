@@ -28,4 +28,4 @@ runs:
         CHANGES_GATE_PATTERNS: ${{ inputs.patterns }}
         CHANGES_GATE_AUTH: ${{ inputs.github-token }}
         CHANGES_GATE_EVENT_NAME: ${{ github.event_name }}
-      run: python3 "$GITHUB_ACTION_PATH/changes_gate.py"
+      run: python3 -I "$GITHUB_ACTION_PATH/changes_gate.py"
