@@ -1,16 +1,10 @@
 name: Tree receipt record
 description: >-
-  Write a verification receipt for the tree this workflow run just tested.
-  Run it as the last step of a final gate job, only when every verified job
-  succeeded. Never fails the job.
+  Write a verification receipt for the tree this push run just tested. Run it
+  as the last step of a final gate job, only when every verified job
+  succeeded. Writes nothing on other events. Never fails the job.
 
 inputs:
-  tested-tree:
-    description: >-
-      40-hex tree of the commit that was checked out and tested. Defaults to
-      the tree of HEAD in the workspace.
-    required: false
-    default: ""
   github-token:
     description: Token used to write the commit status. Needs statuses write.
     required: false
@@ -22,7 +16,6 @@ runs:
     - id: record
       shell: bash
       env:
-        TREE_RECEIPT_TESTED_TREE: ${{ inputs.tested-tree }}
         TREE_RECEIPT_AUTH: ${{ inputs.github-token }}
         TREE_RECEIPT_EVENT_NAME: ${{ github.event_name }}
-      run: python3 "$GITHUB_ACTION_PATH/record.py"
+      run: python3 -I "$GITHUB_ACTION_PATH/record.py"

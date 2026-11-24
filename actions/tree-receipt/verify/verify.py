@@ -3,7 +3,9 @@
 
 Everything comes from environment variables. The log carries only SHAs, counts,
 run ids and the decision, and GITHUB_OUTPUT gets reuse=true or reuse=false.
-Any doubt resolves to false.
+Any doubt resolves to false. Statuses are lookup hints only: a cited run counts
+when it is a push run whose commit tree and workflow blob are independently
+confirmed and whose jobs all succeeded.
 """
 import datetime
 import json
@@ -12,6 +14,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -27,11 +30,20 @@ HEX40 = re.compile(r"[0-9a-f]{40}")
 REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 WORKFLOW_REF = re.compile(
     r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(\.github/workflows/[A-Za-z0-9_./-]+)@\S+")
-BAD_JOB = {"failure", "cancelled", "timed_out", "action_required", "startup_failure"}
 
 
 class Doubt(Exception):
     """Raised for anything that should resolve to reuse=false."""
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse every redirect so the Authorization header never follows one."""
+
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+OPENER = urllib.request.build_opener(NoRedirect)
 
 
 def workflow_path(ref):
@@ -46,7 +58,7 @@ def default_git(args):
                           timeout=30, check=True).stdout.strip()
 
 
-def fetch_json(url, auth):
+def fetch_json(url, auth, timeout=REQUEST_TIMEOUT):
     request = urllib.request.Request(
         url,
         headers={
@@ -56,10 +68,15 @@ def fetch_json(url, auth):
             "User-Agent": "codeswhat-tree-receipt",
         },
     )
-    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
-        if response.status != 200:
-            raise Doubt("status")
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with OPENER.open(request, timeout=timeout) as response:
+            if response.status != 200:
+                raise Doubt("status")
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        if 300 <= error.code < 400:
+            raise Doubt("redirect")
+        raise
 
 
 def read_event(env):
@@ -83,7 +100,7 @@ def current_tree(git):
     return tree
 
 
-def candidates(env, git, api, repo, auth, fetch):
+def candidates(env, git, api, repo, auth, fetch, log):
     name = env.get("TREE_RECEIPT_EVENT_NAME", "")
     found = []
     if name == "pull_request":
@@ -99,6 +116,13 @@ def candidates(env, git, api, repo, auth, fetch):
             raise Doubt("no-git")
         if not HEX40.fullmatch(head):
             raise Doubt("head")
+        if not parents:
+            try:
+                shallow = git(["rev-parse", "--is-shallow-repository"]) == "true"
+            except Exception:
+                shallow = False
+            if shallow:
+                log.append("shallow checkout, parents unavailable")
         found.extend(parents)
         pulls = fetch("{0}/repos/{1}/commits/{2}/pulls?per_page={3}".format(
             api, repo, head, PER_PAGE), auth)
@@ -143,7 +167,41 @@ def parse_time(text):
     return parsed.replace(tzinfo=datetime.timezone.utc)
 
 
-def validate_run(api, repo, run_id, sha, path, max_age, now, auth, fetch):
+def commit_tree(api, repo, sha, auth, fetch):
+    data = fetch("{0}/repos/{1}/git/commits/{2}".format(api, repo, sha), auth)
+    tree = data.get("tree") if isinstance(data, dict) else None
+    value = tree.get("sha") if isinstance(tree, dict) else None
+    if not isinstance(value, str) or not HEX40.fullmatch(value):
+        raise Doubt("shape")
+    return value
+
+
+def file_blob(api, repo, path, ref, auth, fetch):
+    data = fetch("{0}/repos/{1}/contents/{2}?ref={3}".format(
+        api, repo, urllib.parse.quote(path, safe="/"), ref), auth)
+    blob = data.get("sha") if isinstance(data, dict) else None
+    if not isinstance(blob, str) or not HEX40.fullmatch(blob):
+        raise Doubt("shape")
+    return blob
+
+
+def default_branch_blob(api, repo, path, auth, fetch):
+    """Blob of the workflow file at the default branch's current head sha."""
+    info = fetch("{0}/repos/{1}".format(api, repo), auth)
+    branch = info.get("default_branch") if isinstance(info, dict) else None
+    if not isinstance(branch, str) or not branch:
+        raise Doubt("shape")
+    head = fetch("{0}/repos/{1}/branches/{2}".format(
+        api, repo, urllib.parse.quote(branch, safe="")), auth)
+    commit = head.get("commit") if isinstance(head, dict) else None
+    sha = commit.get("sha") if isinstance(commit, dict) else None
+    if not isinstance(sha, str) or not HEX40.fullmatch(sha):
+        raise Doubt("shape")
+    return file_blob(api, repo, path, sha, auth, fetch)
+
+
+def validate_run(api, repo, run_id, sha, path, tree, claimed, trusted, max_age, now,
+                 auth, fetch):
     """Return the run's created_at, or None when the run is not good evidence."""
     run = fetch("{0}/repos/{1}/actions/runs/{2}".format(api, repo, run_id), auth)
     if not isinstance(run, dict):
@@ -154,12 +212,18 @@ def validate_run(api, repo, run_id, sha, path, max_age, now, auth, fetch):
     if not isinstance(run_path, str):
         raise Doubt("shape")
     if (full != repo or run_path.split("@", 1)[0] != path
+            or run.get("event") != "push"
             or run.get("conclusion") != "success" or run.get("status") != "completed"
             or run.get("head_sha") != sha):
         return None
     created = parse_time(run.get("created_at"))
     age = now - created
     if age < datetime.timedelta(0) or age > datetime.timedelta(hours=max_age):
+        return None
+    run_tree = commit_tree(api, repo, sha, auth, fetch)
+    if run_tree != tree or run_tree != claimed:
+        return None
+    if file_blob(api, repo, path, sha, auth, fetch) != trusted():
         return None
     seen = 0
     total = None
@@ -174,8 +238,7 @@ def validate_run(api, repo, run_id, sha, path, max_age, now, auth, fetch):
         for job in jobs:
             if not isinstance(job, dict):
                 raise Doubt("shape")
-            conclusion = job.get("conclusion")
-            if conclusion is None or conclusion in BAD_JOB:
+            if job.get("conclusion") != "success":
                 return None
         seen += len(jobs)
         if seen >= total or len(jobs) < PER_PAGE:
@@ -206,7 +269,21 @@ def decide(env, git=default_git, fetch=fetch_json, now=None):
     now = now or datetime.datetime.now(datetime.timezone.utc)
     started = time.monotonic()
     tree = current_tree(git)
-    cands = candidates(env, git, api, repo, auth, fetch)
+
+    def budgeted(url, token):
+        remaining = DEADLINE_SECONDS - (time.monotonic() - started)
+        if remaining <= 0:
+            raise Doubt("deadline")
+        return fetch(url, token, timeout=min(REQUEST_TIMEOUT, remaining))
+
+    cands = candidates(env, git, api, repo, auth, budgeted, log)
+    cache = []
+
+    def trusted():
+        if not cache:
+            cache.append(default_branch_blob(api, repo, path, auth, budgeted))
+        return cache[0]
+
     log.append("tree={0} candidates={1}".format(tree, len(cands)))
     context = "tree-receipt/" + path
     description = "tree=" + tree
@@ -216,7 +293,7 @@ def decide(env, git=default_git, fetch=fetch_json, now=None):
     for sha in cands:
         if time.monotonic() - started > DEADLINE_SECONDS:
             raise Doubt("deadline")
-        for status in statuses(api, repo, sha, auth, fetch):
+        for status in statuses(api, repo, sha, auth, budgeted):
             if not isinstance(status, dict):
                 raise Doubt("shape")
             creator = status.get("creator")
@@ -234,10 +311,13 @@ def decide(env, git=default_git, fetch=fetch_json, now=None):
                 log.append("run check limit reached")
                 return False, "", log
             checked.add(run_id)
-            created = validate_run(api, repo, run_id, sha, path, max_age, now, auth, fetch)
+            created = validate_run(api, repo, run_id, sha, path, tree, tree, trusted,
+                                   max_age, now, auth, budgeted)
             if created is None:
                 log.append("rejected candidate={0} run={1}".format(sha, run_id))
                 continue
+            if time.monotonic() - started > DEADLINE_SECONDS:
+                raise Doubt("deadline")
             evidence = target
             log.append("evidence candidate={0} run={1} created_at={2}".format(
                 sha, evidence, created.strftime("%Y-%m-%dT%H:%M:%SZ")))

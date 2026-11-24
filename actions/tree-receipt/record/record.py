@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 import sys
+import urllib.error
 import urllib.request
 
 REQUEST_TIMEOUT = 20
@@ -22,6 +23,16 @@ class Skip(Exception):
     """Raised for anything that means no receipt is written."""
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse every redirect so the Authorization header never follows one."""
+
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+OPENER = urllib.request.build_opener(NoRedirect)
+
+
 def workflow_path(ref):
     match = WORKFLOW_REF.fullmatch(ref or "")
     if not match:
@@ -29,33 +40,12 @@ def workflow_path(ref):
     return match.group(1)
 
 
-def read_event(env):
-    try:
-        with open(env["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
-            data = json.load(handle)
-    except (KeyError, OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
 def target_sha(env):
-    """Return the commit the workflow ran for, or raise Skip for fork PRs."""
+    """Return the pushed commit. Receipts exist only for push events."""
     name = env.get("TREE_RECEIPT_EVENT_NAME", "")
-    if name in ("pull_request", "pull_request_target"):
-        pr = read_event(env).get("pull_request")
-        if not isinstance(pr, dict):
-            raise Skip("event")
-        head, base = pr.get("head"), pr.get("base")
-        try:
-            head_repo = head["repo"]["full_name"]
-            base_repo = base["repo"]["full_name"]
-            sha = head["sha"]
-        except (KeyError, TypeError):
-            raise Skip("event")
-        if head_repo != base_repo:
-            raise Skip("fork")
-    else:
-        sha = env.get("GITHUB_SHA", "")
+    if name != "push":
+        raise Skip("event {0}".format(name if re.fullmatch(r"[a-z_]{1,40}", name) else "?"))
+    sha = env.get("GITHUB_SHA", "")
     if not isinstance(sha, str) or not TREE.fullmatch(sha):
         raise Skip("sha")
     return sha
@@ -66,13 +56,11 @@ def default_git(args):
                           timeout=30, check=True).stdout.strip()
 
 
-def tested_tree(env, git):
-    tree = (env.get("TREE_RECEIPT_TESTED_TREE") or "").strip()
-    if not tree:
-        try:
-            tree = git(["rev-parse", "HEAD^{tree}"])
-        except Exception:
-            raise Skip("no-tree")
+def tested_tree(sha, git):
+    try:
+        tree = git(["rev-parse", sha + "^{tree}"])
+    except Exception:
+        raise Skip("no-tree")
     if not TREE.fullmatch(tree):
         raise Skip("invalid-tree")
     return tree
@@ -91,7 +79,7 @@ def post_status(url, auth, payload):
             "User-Agent": "codeswhat-tree-receipt",
         },
     )
-    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
+    with OPENER.open(request, timeout=REQUEST_TIMEOUT) as response:
         if response.status != 201:
             raise OSError("status")
 
@@ -106,7 +94,7 @@ def record(env, git=default_git, post=post_status):
         raise Skip("no-auth")
     path = workflow_path(env.get("GITHUB_WORKFLOW_REF"))
     sha = target_sha(env)
-    tree = tested_tree(env, git)
+    tree = tested_tree(sha, git)
     run_id = env.get("GITHUB_RUN_ID", "")
     if not re.fullmatch(r"[0-9]+", run_id):
         raise Skip("run-id")
