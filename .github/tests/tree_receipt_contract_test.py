@@ -628,12 +628,15 @@ class VerifyTests(unittest.TestCase):
                     self.assertIn("deadline", log)
 
     def test_no_request_issued_once_budget_is_spent(self):
-        clock = iter([0] + [121] * 50)
-        with unittest.mock.patch.object(verify.time, "monotonic", lambda: next(clock)):
-            out, log, api = run_verify(good_routes())
-        self.assertReuse("false", out)
-        self.assertIn("deadline", log)
-        self.assertEqual([], api.calls)
+        # 120 is exactly the budget: no time remains, so no request may start.
+        for now in (120, 121):
+            with self.subTest(now=now):
+                clock = iter([0] + [now] * 50)
+                with unittest.mock.patch.object(verify.time, "monotonic", lambda: next(clock)):
+                    out, log, api = run_verify(good_routes())
+                self.assertReuse("false", out)
+                self.assertIn("deadline", log)
+                self.assertEqual([], api.calls)
 
     def test_request_timeout_is_capped_by_remaining_budget(self):
         routes = good_routes()
