@@ -1,0 +1,21 @@
+name: Tree receipt record
+description: >-
+  Write a verification receipt for the tree this push run just tested. Run it
+  as the last step of a final gate job, only when every verified job
+  succeeded. Writes nothing on other events. Never fails the job.
+
+inputs:
+  github-token:
+    description: Token used to write the commit status. Needs statuses write.
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - id: record
+      shell: bash
+      env:
+        TREE_RECEIPT_AUTH: ${{ inputs.github-token }}
+        TREE_RECEIPT_EVENT_NAME: ${{ github.event_name }}
+      run: python3 -I "$GITHUB_ACTION_PATH/record.py"

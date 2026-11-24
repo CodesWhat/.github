@@ -26,7 +26,10 @@ jobs:
 
   macos-build:
     needs: changes
-    if: needs.changes.outputs.run == 'true'
+    if: >-
+      ${{ !cancelled() &&
+      (needs.changes.result != 'success' ||
+      needs.changes.outputs.run != 'false') }}
     runs-on: macos-26
     steps:
       - run: echo "expensive work"
@@ -34,15 +37,29 @@ jobs:
 
 Pin the action to a full commit SHA. No checkout is needed.
 
+Don't write the caller's `if:` as `needs.changes.outputs.run == 'true'`. A
+bare condition carries an implicit `success()`, so if the gate job fails or
+times out the gated job is skipped and a required check passes. The
+expression above runs the job unless the gate succeeded and said `false`, so a
+gate failure means run.
+
+On a fork `pull_request` the gate isn't a security boundary, because the PR
+author controls the workflow file and can change or drop the gate. It matters
+as a boundary under `pull_request_target`, and elsewhere it only makes honest
+skip decisions.
+
 ## Contract
 
 - `patterns` (required): newline-separated globs. `**` matches across
-  directories. `*`, `?` and `[abc]`, `[a-z]`, `[!x]` classes stay inside one
-  path segment.
+  directories and must be a whole path segment (`a/**/b`, not `a**b`).
+  `*`, `?` and `[abc]`, `[a-z]`, `[!x]` classes stay inside one path
+  segment.
   A leading `./` is ignored and a trailing `/` means `/**`. An unparseable
-  glob (an unclosed `[`) makes the result `true`. `#` comments and
-  blank lines are ignored. A leading `!` excludes. Matching is
-  case-insensitive.
+  glob makes the result `true`: an unclosed `[`, a bad range, `**` inside a
+  segment, braces (`{` or `}`), a leading `/`, or a POSIX class (`[[:`).
+  `#` comments and blank lines are ignored. A leading `!` excludes. Include
+  patterns match case-insensitively, since over-triggering is safe. Exclude
+  patterns are case-sensitive, so `!docs/**` never hides `Docs/x`.
 - `github-token`: defaults to `github.token`.
 - Output `run` is exactly `true` or `false`.
 

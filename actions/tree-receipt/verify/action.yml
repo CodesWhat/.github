@@ -1,0 +1,33 @@
+name: Tree receipt verify
+description: >-
+  Decide whether an earlier run already verified this exact tree, so
+  expensive jobs can be skipped. Outputs reuse=false on any doubt.
+
+inputs:
+  max-age-hours:
+    description: Oldest original run, in hours, that still counts as evidence.
+    required: false
+    default: "168"
+  github-token:
+    description: Token used to read statuses, runs and pull requests.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  reuse:
+    description: The string true or false.
+    value: ${{ steps.verify.outputs.reuse }}
+  evidence-run:
+    description: URL of the run whose receipt was accepted, or empty.
+    value: ${{ steps.verify.outputs.evidence-run }}
+
+runs:
+  using: composite
+  steps:
+    - id: verify
+      shell: bash
+      env:
+        TREE_RECEIPT_MAX_AGE_HOURS: ${{ inputs.max-age-hours }}
+        TREE_RECEIPT_AUTH: ${{ inputs.github-token }}
+        TREE_RECEIPT_EVENT_NAME: ${{ github.event_name }}
+      run: python3 -I "$GITHUB_ACTION_PATH/verify.py"

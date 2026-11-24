@@ -9,7 +9,9 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
+import urllib.request
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -30,15 +32,16 @@ def entry(name, previous=None):
 
 
 API = "https://api.github.com"
+HEAD = "a" * 40
 
 
-def pager(files, changed=None):
+def pager(files, changed=None, head=HEAD):
     """Mock HTTP layer: the PR read plus the files listing in pages of 100."""
     total = len(files) if changed is None else changed
 
     def fetch(url, auth):
         if url.endswith("/pulls/7"):
-            return {"changed_files": total}, None
+            return {"changed_files": total, "head": {"sha": head}}, None
         page = 1
         if "&page=" in url:
             page = int(url.rsplit("&page=", 1)[1])
@@ -51,10 +54,14 @@ def pager(files, changed=None):
     return fetch
 
 
-def run_gate(event, files=None, patterns=PATTERNS, fetch=None, number=7, changed=None):
+def run_gate(event, files=None, patterns=PATTERNS, fetch=None, number=7, changed=None,
+             head=HEAD, payload=None, write_event=True):
     with tempfile.TemporaryDirectory() as tmp:
         event_path = Path(tmp) / "event.json"
-        event_path.write_text(json.dumps({"pull_request": {"number": number}}))
+        if payload is None:
+            payload = {"pull_request": {"number": number, "head": {"sha": head}}}
+        if write_event:
+            event_path.write_text(json.dumps(payload))
         out_path = Path(tmp) / "output"
         env = {
             "CHANGES_GATE_EVENT_NAME": event,
@@ -189,7 +196,123 @@ class ChangesGateContractTest(unittest.TestCase):
         out, _ = run_gate("pull_request", [entry("Sources/Generated/A.swift")], patterns=patterns)
         self.assertRun("false", out)
         out, _ = run_gate("pull_request", [entry("sources/generated/A.swift")], patterns=patterns)
+        self.assertRun("true", out)
+
+    def test_excludes_are_case_sensitive(self):
+        out, _ = run_gate("pull_request", [entry("Sources/App/generated/Evil.swift")],
+                          patterns="Sources/**\n!Sources/App/Generated/**")
+        self.assertRun("true", out)
+        out, _ = run_gate("pull_request", [entry("Sources/App/Generated/Ok.swift")],
+                          patterns="Sources/**\n!Sources/App/Generated/**")
         self.assertRun("false", out)
+
+    def test_excludes_have_no_unicode_folding(self):
+        out, _ = run_gate("pull_request", [entry("doc\u017f/x")], patterns="**\n!docs/**")
+        self.assertRun("true", out)
+
+    def test_includes_stay_case_insensitive(self):
+        out, _ = run_gate("pull_request", [entry("SRC/a.js")], patterns="src/**")
+        self.assertRun("true", out)
+
+    def test_unsupported_glob_syntax_runs(self):
+        for pattern in ("Sources/{a,b}/**", "Sources/a}", "{a", "/Sources/**",
+                        "Sources/[[:alpha:]].swift", "!{a,b}", "!/docs/**", "Sources/**.swift/**x"):
+            with self.subTest(pattern=pattern):
+                out, _ = run_gate("pull_request", [entry("docs/a.md")],
+                                  patterns="Sources/**\n" + pattern)
+                self.assertRun("true", out)
+
+    def test_pathological_pattern_is_bounded(self):
+        pattern = "a/**/**/**/**/b*c*d*e*f*g"
+        name = "a/" + "x" * 5000 + "/" + "bcdef" * 1000
+        started = time.monotonic()
+        out, _ = run_gate("pull_request", [entry(name)], patterns=pattern)
+        elapsed = time.monotonic() - started
+        self.assertRun("false", out)
+        self.assertLess(elapsed, 1.0)
+        print("redos elapsed {0:.4f}s".format(elapsed), file=sys.stderr)
+        deep = "a/" + "/".join("s" * 20 for _ in range(300)) + "/z"
+        started = time.monotonic()
+        out, _ = run_gate("pull_request", [entry(deep)], patterns="a/**/*s/**/*s/**/q")
+        self.assertRun("false", out)
+        self.assertLess(time.monotonic() - started, 1.0)
+
+    def test_redirect_is_never_followed(self):
+        seen = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen.append((self.path, self.headers.get("Authorization")))
+                self.send_response(302)
+                self.send_header("Location", "/elsewhere")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        old = {k: os.environ.get(k) for k in ("NO_PROXY", "no_proxy")}
+        os.environ["NO_PROXY"] = os.environ["no_proxy"] = "127.0.0.1"
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                event = Path(tmp) / "event.json"
+                event.write_text(json.dumps({"pull_request": {"number": 7, "head": {"sha": HEAD}}}))
+                out = Path(tmp) / "output"
+                env = {
+                    "CHANGES_GATE_EVENT_NAME": "pull_request",
+                    "CHANGES_GATE_PATTERNS": PATTERNS,
+                    "CHANGES_GATE_AUTH": "secret-value",
+                    "GITHUB_REPOSITORY": "CodesWhat/example",
+                    "GITHUB_API_URL": "http://127.0.0.1:{0}".format(server.server_address[1]),
+                    "GITHUB_EVENT_PATH": str(event),
+                    "GITHUB_OUTPUT": str(out),
+                }
+                with contextlib.redirect_stdout(io.StringIO()):
+                    gate.main(env)
+                self.assertRun("true", out.read_text())
+        finally:
+            server.shutdown()
+            server.server_close()
+            for key, value in old.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+        self.assertEqual([("/repos/CodesWhat/example/pulls/7", "Bearer secret-value")], seen)
+
+    def test_opener_refuses_redirects(self):
+        handler = gate.NoRedirect()
+        request = urllib.request.Request("https://api.github.com/x")
+        self.assertIsNone(handler.redirect_request(
+            request, None, 302, "Found", {}, "https://evil.example/y"))
+        self.assertTrue(any(isinstance(h, gate.NoRedirect) for h in gate.OPENER.handlers))
+        self.assertFalse(any(type(h) is urllib.request.HTTPRedirectHandler
+                             for h in gate.OPENER.handlers))
+
+    def test_head_sha_mismatch_runs(self):
+        out, _ = run_gate("pull_request", fetch=pager([entry("docs/a.md")], head="b" * 40))
+        self.assertRun("true", out)
+        out, _ = run_gate("pull_request", [entry("docs/a.md")])
+        self.assertRun("false", out)
+
+    def test_bad_event_head_sha_runs(self):
+        for sha in (None, "", "abc", "g" * 40, 5, "a" * 41):
+            with self.subTest(sha=sha):
+                out, _ = run_gate("pull_request", [entry("docs/a.md")], head=sha)
+                self.assertRun("true", out)
+        out, _ = run_gate("pull_request", [entry("docs/a.md")],
+                          payload={"pull_request": {"number": 7}})
+        self.assertRun("true", out)
+        def no_head(url, auth):
+            data, link = pager([entry("docs/a.md")])(url, auth)
+            if url.endswith("/pulls/7"):
+                data = {"changed_files": 1}
+            return data, link
+        out, _ = run_gate("pull_request", fetch=no_head)
+        self.assertRun("true", out)
 
     def test_regex_metacharacters_are_literal(self):
         cases = (
@@ -214,7 +337,7 @@ class ChangesGateContractTest(unittest.TestCase):
                     return [], None
                 with tempfile.TemporaryDirectory() as tmp:
                     event = Path(tmp) / "event.json"
-                    event.write_text(json.dumps({"pull_request": {"number": 7}}))
+                    event.write_text(json.dumps({"pull_request": {"number": 7, "head": {"sha": HEAD}}}))
                     out_path = Path(tmp) / "output"
                     env = {
                         "CHANGES_GATE_EVENT_NAME": "pull_request",
@@ -365,7 +488,7 @@ class ChangesGateContractTest(unittest.TestCase):
             for pattern, expected in (("Sources/**", "false"), ("docs/119.md", "true")):
                 with self.subTest(pattern=pattern), tempfile.TemporaryDirectory() as tmp:
                     event = Path(tmp) / "event.json"
-                    event.write_text(json.dumps({"pull_request": {"number": 7}}))
+                    event.write_text(json.dumps({"pull_request": {"number": 7, "head": {"sha": HEAD}}}))
                     out = Path(tmp) / "output"
                     env = {
                         "PATH": os.environ.get("PATH", ""),
@@ -389,11 +512,189 @@ class ChangesGateContractTest(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_readme_caller_condition_fails_open_on_gate_failure(self):
+        readme = (ACTION_DIR / "README.md").read_text(encoding="utf-8")
+        flat = " ".join(readme.split())
+        self.assertIn("needs.changes.result != 'success'", flat)
+        self.assertIn("!cancelled()", flat)
+        self.assertIn("needs.changes.outputs.run != 'false'", flat)
+        self.assertNotIn("if: needs.changes.outputs.run == 'true'", readme)
+
+    def test_off_host_next_link_is_never_fetched(self):
+        files = [entry("docs/{0}.md".format(i)) for i in range(150)]
+        calls = []
+
+        def fetch(url, auth):
+            calls.append((url, auth))
+            if url.endswith("/pulls/7"):
+                return {"changed_files": 150, "head": {"sha": HEAD}}, None
+            if url.startswith("https://evil.example/"):
+                return files[100:], None
+            return files[:100], '<https://evil.example/next?page=2>; rel="next"'
+        out, _ = run_gate("pull_request", fetch=fetch)
+        self.assertRun("true", out)
+        self.assertEqual(
+            [API + "/repos/CodesWhat/example/pulls/7",
+             API + "/repos/CodesWhat/example/pulls/7/files?per_page=100"],
+            [url for url, _ in calls])
+        self.assertTrue(all(auth == "secret-value" for _, auth in calls))
+
+    def test_action_output_and_env_wiring(self):
+        lines = (ACTION_DIR / "action.yml").read_text(encoding="utf-8").splitlines()
+        self.assertIn("    value: ${{ steps.gate.outputs.run }}", lines)
+        self.assertIn("    - id: gate", lines)
+        for expected in (
+                "        CHANGES_GATE_PATTERNS: ${{ inputs.patterns }}",
+                "        CHANGES_GATE_AUTH: ${{ inputs.github-token }}",
+                "        CHANGES_GATE_EVENT_NAME: ${{ github.event_name }}"):
+            self.assertIn(expected, lines)
+        step = lines.index("    - id: gate")
+        env = lines.index("      env:", step)
+        run = next(i for i, l in enumerate(lines) if l.strip().startswith("run: python3"))
+        self.assertTrue(step < env < run)
+        for expected in ("CHANGES_GATE_PATTERNS", "CHANGES_GATE_AUTH", "CHANGES_GATE_EVENT_NAME"):
+            self.assertTrue(any(expected in l for l in lines[env:run]))
+
+    def test_invalid_pull_numbers_rejected_before_fetch(self):
+        for number in (True, False, 0, -1):
+            with self.subTest(number=number):
+                calls = []
+
+                def fetch(url, auth):
+                    calls.append(url)
+                    return {}, None
+                out, _ = run_gate("pull_request", fetch=fetch, number=number)
+                self.assertRun("true", out)
+                self.assertEqual([], calls)
+
+    def test_missing_event_file_runs(self):
+        calls = []
+
+        def fetch(url, auth):
+            calls.append(url)
+            return {}, None
+        out, _ = run_gate("pull_request", fetch=fetch, write_event=False)
+        self.assertRun("true", out)
+        self.assertEqual([], calls)
+
+    def test_missing_pull_request_key_runs(self):
+        for payload in ({}, {"pull_request": {}}, {"pull_request": {"head": {"sha": HEAD}}},
+                        {"pull_request": None}, []):
+            with self.subTest(payload=payload):
+                calls = []
+
+                def fetch(url, auth):
+                    calls.append(url)
+                    return {}, None
+                out, _ = run_gate("pull_request", fetch=fetch, payload=payload)
+                self.assertRun("true", out)
+                self.assertEqual([], calls)
+
+    def test_listing_cap_with_underreported_count(self):
+        files = [entry("docs/{0}.md".format(i)) for i in range(3000)]
+        pages = []
+        base = pager(files)
+
+        def fetch(url, auth):
+            if "/files" in url:
+                pages.append(url)
+            return base(url, auth)
+        fetch_pr = lambda url, auth: ({"changed_files": 2999, "head": {"sha": HEAD}}, None) \
+            if url.endswith("/pulls/7") else fetch(url, auth)
+        with self.assertRaises(gate.Doubt) as caught:
+            gate.list_names(API, "CodesWhat/example", 7, "secret-value", fetch_pr, HEAD)
+        self.assertEqual("cap", str(caught.exception))
+        self.assertEqual(30, len(pages))
+
+    def test_pagination_loop_bound(self):
+        old = gate.FILE_CAP
+        gate.FILE_CAP = 4000
+        self.addCleanup(setattr, gate, "FILE_CAP", old)
+        files = [entry("docs/{0}.md".format(i)) for i in range(4000)]
+        base = pager(files)
+        pages = []
+
+        def fetch(url, auth):
+            if url.endswith("/pulls/7"):
+                return {"changed_files": 3999, "head": {"sha": HEAD}}, None
+            pages.append(url)
+            if len(pages) > gate.MAX_PAGES + 1:
+                self.fail("fetched past the page bound")
+            return base(url, auth)
+        with self.assertRaises(gate.Doubt) as caught:
+            gate.list_names(API, "CodesWhat/example", 7, "secret-value", fetch, HEAD)
+        self.assertEqual("cap", str(caught.exception))
+        self.assertEqual(gate.MAX_PAGES + 1, len(pages))
+
+    def test_range_includes_fold_kelvin_sign(self):
+        out, _ = run_gate("pull_request", [entry("\u212a.txt")], patterns="[A-Z].txt")
+        self.assertRun("true", out)
+        out, _ = run_gate("pull_request", [entry("\u212a.txt")], patterns="**\n![A-Z].txt")
+        self.assertRun("true", out)
+
+    def test_class_includes_fold_symmetrically(self):
+        out, _ = run_gate("pull_request", [entry("\u212a.txt")], patterns="[K].txt")
+        self.assertRun("true", out)
+        out, _ = run_gate("pull_request", [entry("K.txt")], patterns="[\u212a].txt")
+        self.assertRun("true", out)
+        out, _ = run_gate("pull_request", [entry("docs.txt")], patterns="[K].txt")
+        self.assertRun("false", out)
+
+    def test_class_ignores_multi_character_folds(self):
+        out, _ = run_gate("pull_request", [entry("\u00df.txt")], patterns="[!a-z].txt")
+        self.assertRun("true", out)
+        out, _ = run_gate("pull_request", [entry("\u00df.txt")], patterns="[a-z].txt")
+        self.assertRun("false", out)
+
+    def test_class_excludes_stay_exact(self):
+        out, _ = run_gate("pull_request", [entry("\u212a.txt")], patterns="**\n![K].txt")
+        self.assertRun("true", out)
+        out, _ = run_gate("pull_request", [entry("K.txt")], patterns="**\n![K].txt")
+        self.assertRun("false", out)
+
+    def test_head_moving_during_listing_runs(self):
+        base = pager([entry("docs/a.md")])
+        reads = []
+
+        def fetch(url, auth):
+            if url.endswith("/pulls/7"):
+                reads.append(url)
+                head = HEAD if len(reads) == 1 else "b" * 40
+                return {"changed_files": 1, "head": {"sha": head}}, None
+            return base(url, auth)
+        out, _ = run_gate("pull_request", fetch=fetch)
+        self.assertRun("true", out)
+        self.assertEqual(2, len(reads))
+
+    def test_changed_files_moving_during_listing_runs(self):
+        base = pager([entry("docs/a.md")])
+        reads = []
+
+        def fetch(url, auth):
+            if url.endswith("/pulls/7"):
+                reads.append(url)
+                return {"changed_files": len(reads), "head": {"sha": HEAD}}, None
+            return base(url, auth)
+        out, _ = run_gate("pull_request", fetch=fetch)
+        self.assertRun("true", out)
+
+    def test_stable_head_rechecked_and_skips(self):
+        reads = []
+        base = pager([entry("docs/a.md")])
+
+        def fetch(url, auth):
+            if url.endswith("/pulls/7"):
+                reads.append(url)
+            return base(url, auth)
+        out, _ = run_gate("pull_request", fetch=fetch)
+        self.assertRun("false", out)
+        self.assertEqual(2, len(reads))
+
     def test_action_shape(self):
         action = (ACTION_DIR / "action.yml").read_text(encoding="utf-8")
         for expected in ("using: composite", "required: true",
                          "default: ${{ github.token }}",
-                         'run: python3 "$GITHUB_ACTION_PATH/changes_gate.py"'):
+                         'run: python3 -I "$GITHUB_ACTION_PATH/changes_gate.py"'):
             self.assertIn(expected, action)
         # Expressions are only ever passed through env, never interpolated into run.
         run_lines = [l for l in action.splitlines() if l.strip().startswith("run:")]
