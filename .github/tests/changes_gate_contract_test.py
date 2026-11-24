@@ -626,6 +626,12 @@ class ChangesGateContractTest(unittest.TestCase):
         self.assertEqual("cap", str(caught.exception))
         self.assertEqual(gate.MAX_PAGES + 1, len(pages))
 
+    def test_range_includes_fold_kelvin_sign(self):
+        out, _ = run_gate("pull_request", [entry("\u212a.txt")], patterns="[A-Z].txt")
+        self.assertRun("true", out)
+        out, _ = run_gate("pull_request", [entry("\u212a.txt")], patterns="**\n![A-Z].txt")
+        self.assertRun("true", out)
+
     def test_class_includes_fold_symmetrically(self):
         out, _ = run_gate("pull_request", [entry("\u212a.txt")], patterns="[K].txt")
         self.assertRun("true", out)

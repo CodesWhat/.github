@@ -28,9 +28,18 @@ ANY = ("?",)
 
 
 def variants(ch):
-    """Single-character case variants of ch. Multi-character expansions
+    """Single-character case variants of ch, closed under lower/upper/casefold
+    so the Kelvin sign also reaches ASCII K. Multi-character expansions
     (e.g. the casefold of the German sharp s) are dropped."""
-    return {v for v in (ch, ch.lower(), ch.upper(), ch.casefold()) if len(v) == 1}
+    seen = {ch}
+    pending = [ch]
+    while pending:
+        current = pending.pop()
+        for v in (current.lower(), current.upper(), current.casefold()):
+            if len(v) == 1 and v not in seen:
+                seen.add(v)
+                pending.append(v)
+    return seen
 
 
 def normalize(line):
