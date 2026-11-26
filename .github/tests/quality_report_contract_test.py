@@ -18,7 +18,9 @@ SCHEMA = CONTRACT_ROOT / "schema.json"
 WORKFLOW = ROOT / ".github" / "workflows" / "quality-report-aggregate.yml"
 DECISION = ROOT / "decisions" / "quality-reporting.md"
 SHA = "0123456789abcdef0123456789abcdef01234567"
+SELECTOR = CONTRACT_ROOT / "select_artifacts.py"
 QUALITY_REPORT = runpy.run_path(str(SCRIPT))
+SELECTOR_MODULE = runpy.run_path(str(SELECTOR))
 
 
 class QualityReportContractTest(unittest.TestCase):
@@ -100,6 +102,117 @@ class QualityReportContractTest(unittest.TestCase):
         self.assertIn("partial 1/2", summary)
         self.assertNotIn("Canonical score", summary)
         self.assertEqual(0, self.validate_report(report).returncode)
+
+    def test_partial_rerun_without_a_replacement_fails_closed(self):
+        def drop_stale_target(input_dir):
+            shutil.rmtree(input_dir / "quality-result-stats")
+
+        result, report, summary = self.aggregate(
+            "complete",
+            track="fuzz",
+            tool="go-fuzz",
+            expected=[
+                "internal/auth/FuzzVerifyRequest",
+                "internal/docker/FuzzDecodeStats",
+            ],
+            input_mutator=drop_stale_target,
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse(report["completeness"]["complete"])
+        self.assertEqual("error", report["outcome"])
+        self.assertIsNone(report["metrics"])
+        self.assertNotIn("Canonical score", summary)
+
+    def selector_fetch(self, artifacts, started_at="2026-08-13T12:00:00Z"):
+        calls = []
+
+        def fetch(path):
+            calls.append(path)
+            if "/attempts/" in path:
+                return {"run_started_at": started_at}
+            page = int(path.rsplit("page=", 1)[1])
+            size = SELECTOR_MODULE["PAGE_SIZE"]
+            return {
+                "total_count": len(artifacts),
+                "artifacts": artifacts[(page - 1) * size : page * size],
+            }
+
+        return fetch, calls
+
+    def artifact(self, artifact_id, created_at, name="quality-result-a"):
+        return {"id": artifact_id, "name": name, "created_at": created_at}
+
+    def select(self, artifacts, pattern="quality-result-*", **kwargs):
+        fetch, calls = self.selector_fetch(artifacts, **kwargs)
+        ids = SELECTOR_MODULE["select_artifacts"](
+            "CodesWhat/example", "1", "2", pattern, fetch
+        )
+        return ids, calls
+
+    def test_selector_keeps_only_fresh_artifacts_matching_the_pattern(self):
+        ids, calls = self.select(
+            [
+                self.artifact(1, "2026-08-13T11:59:59Z"),
+                self.artifact(2, "2026-08-13T12:00:01Z"),
+                self.artifact(3, "2026-08-13T12:05:00Z", name="other-result"),
+                self.artifact(4, "2026-08-13T12:10:00Z", name="quality-result-b"),
+            ]
+        )
+
+        self.assertEqual([2, 4], ids)
+        self.assertIn("/repos/CodesWhat/example/actions/runs/1/attempts/2", calls[0])
+
+    def test_selector_rejects_an_artifact_created_at_the_attempt_start(self):
+        ids, _ = self.select([self.artifact(1, "2026-08-13T12:00:00Z")])
+
+        self.assertEqual([], ids)
+
+    def test_selector_reads_every_artifact_page(self):
+        artifacts = [
+            self.artifact(i, "2026-08-13T13:00:00Z", name="quality-result-{0}".format(i))
+            for i in range(1, 251)
+        ]
+        ids, calls = self.select(artifacts)
+
+        self.assertEqual(list(range(1, 251)), ids)
+        self.assertEqual(3, len([c for c in calls if "/artifacts?" in c]))
+
+    def test_selector_rejects_missing_or_ambiguous_timestamps(self):
+        error = SELECTOR_MODULE["SelectionError"]
+        with self.assertRaises(error):
+            self.select([{"id": 1, "name": "quality-result-a"}])
+        with self.assertRaises(error):
+            self.select([self.artifact(1, "2026-08-13T12:30:00")])
+        with self.assertRaises(error):
+            self.select([self.artifact(1, "2026-08-13T12:30:00Z")], started_at=None)
+
+    def test_empty_selection_exits_zero_and_never_downloads_everything(self):
+        fetch, _ = self.selector_fetch([self.artifact(1, "2026-08-13T11:00:00Z")])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "github-output"
+            code = SELECTOR_MODULE["main"](
+                [
+                    "--repository",
+                    "CodesWhat/example",
+                    "--run-id",
+                    "1",
+                    "--run-attempt",
+                    "2",
+                    "--pattern",
+                    "quality-result-*",
+                    "--github-output",
+                    str(output),
+                ],
+                fetch,
+            )
+            self.assertEqual(0, code)
+            self.assertEqual("artifact_ids=\n", output.read_text())
+
+        workflow = WORKFLOW.read_text()
+        self.assertIn("artifact-ids: ${{ steps.select.outputs.artifact_ids }}", workflow)
+        self.assertIn("steps.select.outputs.artifact_ids != ''", workflow)
+        self.assertNotIn("pattern: ${{ inputs.result_artifact_pattern }}", workflow)
 
     def test_crash_fixture_fails_even_when_every_target_reports(self):
         result, report, summary = self.aggregate(

@@ -104,12 +104,28 @@ jobs:
           test -n "$started_at"
           echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"
 
+      - name: Select target results from this attempt
+        id: select
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PATTERN: ${{ inputs.result_artifact_pattern }}
+        run: |
+          set -euo pipefail
+          python3 quality-report-contract/quality-report/v1/select_artifacts.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --pattern "$PATTERN" \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Download normalized target results
         id: download
-        if: always()
+        if: always() && steps.select.outputs.artifact_ids != ''
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: ${{ inputs.result_artifact_pattern }}
+          artifact-ids: ${{ steps.select.outputs.artifact_ids }}
           path: quality-result-artifacts
 
       - name: Validate and aggregate target results
