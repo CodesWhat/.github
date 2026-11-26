@@ -619,11 +619,12 @@ jobs:
           # Another run or a human can land on the branch between checkout and
           # here. The commit touches only the two SVGs, so rebasing onto
           # whatever arrived is safe. Bounded, so a real rejection still fails.
+          short_branch="${TARGET_BRANCH#refs/heads/}"
           for attempt in 1 2 3; do
             if git push origin "HEAD:$TARGET_BRANCH"; then exit 0; fi
-            echo "::warning::push rejected (attempt $attempt); rebasing onto origin/$TARGET_BRANCH"
-            git fetch --depth=50 origin "$TARGET_BRANCH"
-            git rebase "origin/$TARGET_BRANCH"
+            echo "::warning::push rejected (attempt $attempt); rebasing onto origin/$short_branch"
+            git fetch --depth=50 origin "+refs/heads/$short_branch:refs/remotes/origin/$short_branch"
+            git rebase "origin/$short_branch"
           done
           echo "::error::could not push the chart after 3 attempts" >&2
           exit 1

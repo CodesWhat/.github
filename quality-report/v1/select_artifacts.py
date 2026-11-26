@@ -17,6 +17,50 @@ class SelectionError(Exception):
     pass
 
 
+def expand_braces(pattern):
+    """Expand {a,b} alternatives the way minimatch does for download-artifact.
+
+    Nested groups expand recursively. A group with no top-level comma, or an
+    unbalanced brace, stays literal, which also matches minimatch.
+    """
+    depth = 0
+    start = None
+    for index, char in enumerate(pattern):
+        if char == "{":
+            if depth == 0:
+                start = index
+            depth += 1
+        elif char == "}" and depth:
+            depth -= 1
+            if depth == 0:
+                body = pattern[start + 1:index]
+                options, level, last = [], 0, 0
+                for position, inner in enumerate(body):
+                    if inner == "{":
+                        level += 1
+                    elif inner == "}":
+                        level -= 1
+                    elif inner == "," and level == 0:
+                        options.append(body[last:position])
+                        last = position + 1
+                if not options:
+                    head, tail = pattern[:index + 1], pattern[index + 1:]
+                    return [head + rest for rest in expand_braces(tail)]
+                options.append(body[last:])
+                prefix, suffix = pattern[:start], pattern[index + 1:]
+                expanded = []
+                for option in options:
+                    for item in expand_braces(prefix + option + suffix):
+                        if item not in expanded:
+                            expanded.append(item)
+                return expanded
+    return [pattern]
+
+
+def matches(name, pattern):
+    return any(fnmatch.fnmatchcase(name, item) for item in expand_braces(pattern))
+
+
 def gh_api(path):
     result = subprocess.run(
         ["gh", "api", path], capture_output=True, text=True, check=False, timeout=60
@@ -66,7 +110,7 @@ def select_artifacts(repository, run_id, attempt, pattern, fetch=gh_api):
     selected = []
     for artifact in list_artifacts(repository, run_id, fetch):
         name = artifact.get("name")
-        if not isinstance(name, str) or not fnmatch.fnmatchcase(name, pattern):
+        if not isinstance(name, str) or not matches(name, pattern):
             continue
         if artifact.get("expired") is True:
             continue

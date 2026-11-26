@@ -409,8 +409,11 @@ class StarchartRefreshContractTest(unittest.TestCase):
         step = self.read_workflow().split("Commit the chart only when it actually changed", 1)[1]
         self.assertIn('git push origin "HEAD:$TARGET_BRANCH"', step)
         self.assertRegex(step, r"for attempt in 1 2 3; do")
-        self.assertIn('git fetch --depth=50 origin "$TARGET_BRANCH"', step)
-        self.assertIn('git rebase "origin/$TARGET_BRANCH"', step)
+        # inputs.branch may be fully qualified; the remote-tracking ref may not.
+        self.assertIn('short_branch="${TARGET_BRANCH#refs/heads/}"', step)
+        self.assertIn('git fetch --depth=50 origin "+refs/heads/$short_branch:refs/remotes/origin/$short_branch"', step)
+        self.assertIn('git rebase "origin/$short_branch"', step)
+        self.assertNotIn('origin/$TARGET_BRANCH', step)
         self.assertLess(step.index("for attempt in"), step.index("git push origin"))
         self.assertLess(step.index("git rebase"), step.index("could not push the chart"))
         self.assertIn("exit 1", step.split("could not push the chart", 1)[1])

@@ -163,6 +163,26 @@ class QualityReportContractTest(unittest.TestCase):
         self.assertEqual([2, 4], ids)
         self.assertIn("/repos/CodesWhat/example/actions/runs/1/attempts/2", calls[0])
 
+    def test_selector_expands_brace_alternatives_like_download_artifact(self):
+        ids, _ = self.select(
+            [
+                self.artifact(1, "2026-08-13T12:01:00Z", name="quality-result-auth"),
+                self.artifact(2, "2026-08-13T12:01:00Z", name="quality-result-stats"),
+                self.artifact(3, "2026-08-13T12:01:00Z", name="quality-result-other"),
+                self.artifact(4, "2026-08-13T11:00:00Z", name="quality-result-auth"),
+            ],
+            pattern="quality-result-{auth,stats}",
+        )
+
+        self.assertEqual([1, 2], ids)
+
+    def test_brace_expansion_handles_nesting_and_literals(self):
+        expand = SELECTOR_MODULE["expand_braces"]
+        self.assertEqual(["a-x-1", "a-x-2", "a-y"], expand("a-{x-{1,2},y}"))
+        self.assertEqual(["a-{x}"], expand("a-{x}"))
+        self.assertEqual(["a-{x,y"], expand("a-{x,y"))
+        self.assertEqual(["quality-result-*"], expand("quality-result-*"))
+
     def test_selector_rejects_an_artifact_created_at_the_attempt_start(self):
         ids, _ = self.select([self.artifact(1, "2026-08-13T12:00:00Z")])
 
