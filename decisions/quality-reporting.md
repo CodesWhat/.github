@@ -114,6 +114,13 @@ The aggregate artifact is named
 `quality-report-<track>-<run_id>-<attempt>` and contains `report.json` plus
 `summary.md`. Native reports and crash corpora remain separate artifacts.
 Target result JSON is always uploaded; crash forensics remain failure-only.
+Completeness requires fresh results for every expected target. The aggregate
+job downloads only artifacts matching `result_artifact_pattern` that were
+created strictly after the current attempt started, selected by explicit
+artifact ID. Results retained from an earlier attempt never count, and a
+partial rerun that lacks replacements fails closed: `complete=false`,
+`outcome=error`, no aggregate score, and a nonzero exit. An empty selection
+downloads nothing instead of falling back to every artifact.
 Normalized aggregate artifacts use at least 90 days of retention.
 
 The reusable workflow checks out its own contract at the exact called-workflow

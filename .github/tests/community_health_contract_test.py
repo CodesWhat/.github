@@ -202,6 +202,24 @@ class CommunityHealthContractTest(unittest.TestCase):
 
         self.assertNotIn("\n          version:", zizmor_step)
 
+    def test_actionlint_download_retries_and_is_bounded(self):
+        workflow = self.read_text(".github/workflows/standards-validation.yml")
+        curl_line = next(
+            line for line in workflow.splitlines()
+            if "curl" in line and "actionlint_1.7.12" in line
+        )
+
+        for flag in (
+            "--proto =https",
+            "--tlsv1.2",
+            "--retry 3",
+            "--retry-all-errors",
+            "--connect-timeout 10",
+            "--max-time 120",
+        ):
+            self.assertIn(flag, curl_line)
+        self.assertIn("sha256", workflow)
+
     def test_linter_configs_do_not_suppress_workflow_findings(self):
         markdown_config = self.read_text(".github/markdownlint-profile.yaml")
 

@@ -1,5 +1,11 @@
 from pathlib import Path
+import json
+import os
 import re
+import shutil
+import subprocess
+import tempfile
+import textwrap
 import unittest
 
 
@@ -82,6 +88,97 @@ class GreptileSummonContractTest(unittest.TestCase):
             ROOT / ".github/workflows/standards-validation.yml"
         ).read_text()
         self.assertIn("greptile_summon_contract_test.py", validation)
+
+    def test_summon_script_behavior(self):
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node is not available")
+
+        sha = "a" * 40
+        other = "b" * 40
+        marker = f"<!-- greptile-summon:{sha} -->"
+
+        def pull(head, state="open"):
+            return {"data": {"state": state, "head": {"sha": head}}}
+
+        bot_comment = {"user": {"login": "github-actions[bot]"}, "body": marker}
+        cases = (
+            ("abc", [], [], 1, 0, 0),
+            ("1x", [], [], 1, 0, 0),
+            ("7", [pull(sha, "closed")], [], 1, 0, 0),
+            ("7", [pull(other)], [], 1, 0, 0),
+            ("7", [pull(sha)], [bot_comment], 0, 0, 1),
+            ("7", [pull(sha), pull(other)], [], 1, 0, 0),
+            ("7", [pull(sha), pull(sha)], [], 0, 1, 0),
+        )
+
+        body = self.script_body(self.read_workflow())
+        harness = textwrap.dedent(
+            """\
+            const body = %s;
+            const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+            const run = new AsyncFunction("github", "core", "context", "process", body);
+            const scenario = JSON.parse(process.argv[2]);
+            const calls = { setFailed: [], notice: [], createComment: [] };
+            const queue = [...scenario.pulls];
+            const listComments = () => {};
+            const github = {
+              rest: {
+                pulls: { get: async () => queue.shift() },
+                issues: {
+                  listComments,
+                  createComment: async (args) => { calls.createComment.push(args); },
+                },
+              },
+              paginate: async () => scenario.comments,
+            };
+            const core = {
+              setFailed: (m) => calls.setFailed.push(m),
+              notice: (m) => calls.notice.push(m),
+            };
+            const context = { repo: { owner: "o", repo: "r" } };
+            run(github, core, context, process).then(
+              () => console.log(JSON.stringify(calls)),
+              (e) => { console.error(e); process.exit(1); },
+            );
+            """
+        ) % json.dumps(body)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            harness_path = Path(tmp) / "harness.js"
+            harness_path.write_text(harness)
+            for pr_number, pulls, comments, failed, created, notices in cases:
+                with self.subTest(pr_number=pr_number, pulls=pulls):
+                    env = {
+                        **os.environ,
+                        "PR_NUMBER": pr_number,
+                        "HEAD_SHA": sha,
+                        "REVIEW_FOCUS": "check the diff",
+                    }
+                    result = subprocess.run(
+                        [node, str(harness_path), json.dumps({"pulls": pulls, "comments": comments})],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                        env=env,
+                    )
+                    calls = json.loads(result.stdout)
+                    self.assertEqual(len(calls["setFailed"]), failed, calls)
+                    self.assertEqual(len(calls["createComment"]), created, calls)
+                    self.assertEqual(len(calls["notice"]), notices, calls)
+                    if created:
+                        comment_body = calls["createComment"][0]["body"]
+                        self.assertIn("@greptileai", comment_body)
+                        self.assertIn(marker, comment_body)
+
+    def script_body(self, workflow):
+        lines = workflow.split("          script: |\n", 1)[1].splitlines()
+        body = []
+        for line in lines:
+            if line.strip() and not line.startswith(" " * 12):
+                break
+            body.append(line[12:])
+        return "\n".join(body)
 
     def read_workflow(self):
         self.assertTrue(WORKFLOW.is_file(), f"missing workflow: {WORKFLOW}")

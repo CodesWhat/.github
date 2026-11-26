@@ -117,9 +117,9 @@ jobs:
               workflow_id="${workflow_ids[${index}]}"
               workflow_name="${workflow_names[${index}]}"
               # GitHub's `?head_sha=` and `?event=` query filters have been spuriously returning 0 results since 2026-04-27.
-              # Filter the latest runs client-side instead, paging up to 5 x 100 so an older target run is still found.
+              # Filter the latest runs client-side instead, paging until a short page or the API's 1,000-result ceiling (10 x 100).
               runs_pages=()
-              for page in 1 2 3 4 5; do
+              for ((page=1; page<=10; page++)); do
                 runs_url="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}/runs?per_page=100&page=${page}"
                 page_json="$(curl --proto '=https' --tlsv1.2 --retry 3 --fail --silent --show-error \
                   -H "Authorization: Bearer ${GH_TOKEN}" \

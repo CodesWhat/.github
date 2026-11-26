@@ -44,6 +44,7 @@ jobs:
           python3 .github/tests/tracked_validation_test.py
           python3 .github/tests/changes_gate_contract_test.py
           python3 .github/tests/tree_receipt_contract_test.py
+          python3 .github/tests/commit_msg_hook_contract_test.py
           python3 .github/tests/test_wiring_contract_test.py
 
       - name: Compile Python
@@ -69,7 +70,7 @@ jobs:
         run: |
           set -euo pipefail
           archive="$RUNNER_TEMP/actionlint_1.7.12_linux_amd64.tar.gz"
-          curl -fsSL -o "$archive" https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          curl -fsSL --proto =https --tlsv1.2 --retry 3 --retry-all-errors --connect-timeout 10 --max-time 120 -o "$archive" https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
           echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $archive" | sha256sum -c -
           tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -color
