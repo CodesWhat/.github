@@ -62,6 +62,25 @@ class QualityReportContractTest(unittest.TestCase):
         self.assertIn("complete 2/2", summary)
         self.assertEqual(0, self.validate_report(report).returncode)
 
+    def test_aggregate_rejects_fail_on_incomplete_false(self):
+        result, report, _summary = self.aggregate(
+            "complete",
+            track="fuzz",
+            tool="go-fuzz",
+            expected=[
+                "internal/auth/FuzzVerifyRequest",
+                "internal/docker/FuzzDecodeStats",
+            ],
+            fail_on_incomplete="false",
+        )
+
+        self.assertEqual(1, result.returncode, result.stderr)
+        self.assertIn(
+            "fail_on_incomplete must be true for CodesWhat telemetry",
+            report["errors"],
+        )
+        self.assertNotEqual("passed", report["outcome"])
+
     def test_incomplete_fixture_fails_closed_without_a_subset_score(self):
         result, report, summary = self.aggregate(
             "incomplete",
@@ -718,7 +737,15 @@ class QualityReportContractTest(unittest.TestCase):
         )
 
     def aggregate(
-        self, fixture, *, track, tool, expected, input_mutator=None, env=None
+        self,
+        fixture,
+        *,
+        track,
+        tool,
+        expected,
+        input_mutator=None,
+        env=None,
+        fail_on_incomplete="true",
     ):
         self.assertTrue(SCRIPT.is_file(), f"missing aggregator: {SCRIPT}")
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -766,7 +793,7 @@ class QualityReportContractTest(unittest.TestCase):
                 "--report-name",
                 "Fixture quality report",
                 "--fail-on-incomplete",
-                "true",
+                fail_on_incomplete,
                 "--github-output",
                 str(github_output),
                 "--github-step-summary",
