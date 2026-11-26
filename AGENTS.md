@@ -41,8 +41,9 @@ contract tests that pin the shapes other repositories depend on.
 
   ```sh
   alerts="repos/CodesWhat/.github/code-scanning/alerts"
-  gh api "$alerts?state=open&ref=refs/heads/dev/repository-standards" \
-    --jq '[.[] | .rule | select(.security_severity_level == "high"
+  gh api --paginate \
+    "$alerts?state=open&ref=refs/heads/dev/repository-standards&per_page=100" |
+    jq -s '[.[][] | .rule | select(.security_severity_level == "high"
       or .security_severity_level == "critical" or .severity == "error")]
       | length'
   ```
