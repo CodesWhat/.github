@@ -13,6 +13,9 @@ PAGE_SIZE = 100
 TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$")
 
 
+EXTGLOB = re.compile(r"[@+!?*]\(")
+
+
 class SelectionError(Exception):
     pass
 
@@ -100,6 +103,10 @@ def list_artifacts(repository, run_id, fetch):
 
 
 def select_artifacts(repository, run_id, attempt, pattern, fetch=gh_api):
+    if EXTGLOB.search(pattern):
+        raise SelectionError(
+            "unsupported extglob in artifact pattern: {0}".format(pattern)
+        )
     attempt_run = fetch(
         "/repos/{0}/actions/runs/{1}/attempts/{2}".format(repository, run_id, attempt)
     )

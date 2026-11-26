@@ -176,6 +176,14 @@ class QualityReportContractTest(unittest.TestCase):
 
         self.assertEqual([1, 2], ids)
 
+    def test_selector_rejects_extglob_patterns(self):
+        with self.assertRaises(SELECTOR_MODULE["SelectionError"]) as caught:
+            self.select(
+                [self.artifact(1, "2026-08-13T12:01:00Z", name="quality-result-auth")],
+                pattern="quality-result-@(auth|stats)",
+            )
+        self.assertIn("extglob", str(caught.exception))
+
     def test_brace_expansion_handles_nesting_and_literals(self):
         expand = SELECTOR_MODULE["expand_braces"]
         self.assertEqual(["a-x-1", "a-x-2", "a-y"], expand("a-{x-{1,2},y}"))
