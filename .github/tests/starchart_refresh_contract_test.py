@@ -1,4 +1,6 @@
 from pathlib import Path
+import json
+import os
 import re
 import shutil
 import subprocess
@@ -333,6 +335,174 @@ class StarchartRefreshContractTest(unittest.TestCase):
                 check=False,
             )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_api_helper_retries_transient_failures_and_bounds_each_request(self):
+        workflow = self.read_workflow()
+        for expected in (
+            "AbortSignal.timeout(REQUEST_TIMEOUT_MS)",
+            "const REQUEST_TIMEOUT_MS = 15000",
+            "const MAX_ATTEMPTS = 4",
+            "const FETCH_BUDGET_MS = 7 * 60 * 1000",
+            "const MAX_BACKOFF_MS = 30000",
+        ):
+            self.assertIn(expected, workflow)
+
+    def test_generator_recovers_from_a_transient_5xx_or_429(self):
+        for status in (502, 429):
+            with self.subTest(status=status):
+                result = self.run_generator(
+                    [self.repo_reply(2), {"status": status}, self.stars_reply()]
+                )
+                self.assertEqual(result["code"], 0, result["stderr"])
+                self.assertEqual(len(result["fetches"]), 3)
+                self.assertEqual(len(result["sleeps"]), 1)
+                self.assertTrue(result["svgs"])
+
+    def test_generator_waits_out_a_rate_limit(self):
+        reply = {"status": 403, "headers": {"retry-after": "7"}}
+        result = self.run_generator([self.repo_reply(2), reply, self.stars_reply()])
+        self.assertEqual(result["code"], 0, result["stderr"])
+        self.assertEqual(result["sleeps"], [7000])
+
+        reset = {
+            "status": 403,
+            "headers": {"x-ratelimit-remaining": "0", "x-ratelimit-reset": "__SOON__"},
+        }
+        result = self.run_generator([self.repo_reply(2), reset, self.stars_reply()])
+        self.assertEqual(result["code"], 0, result["stderr"])
+        self.assertEqual(len(result["sleeps"]), 1)
+        self.assertGreater(result["sleeps"][0], 1000)
+
+    def test_generator_backs_off_exponentially_between_attempts(self):
+        result = self.run_generator(
+            [self.repo_reply(2), {"status": 500}, {"status": 503}, self.stars_reply()]
+        )
+        self.assertEqual(result["code"], 0, result["stderr"])
+        self.assertEqual(result["sleeps"], [1000, 2000])
+
+    def test_generator_aborts_a_hung_request_on_the_deadline(self):
+        result = self.run_generator([self.repo_reply(2), {"hang": True}, self.stars_reply()])
+        self.assertEqual(result["code"], 0, result["stderr"])
+        self.assertEqual(result["timeouts"][0], 15000)
+        self.assertEqual(len(result["fetches"]), 3)
+
+    def test_generator_exits_nonzero_when_retries_are_exhausted(self):
+        result = self.run_generator([self.repo_reply(2)] + [{"status": 502}] * 4)
+        self.assertNotEqual(result["code"], 0)
+        self.assertEqual(len(result["fetches"]), 5)
+        self.assertIn("stargazers?per_page=100&page=1", result["stderr"])
+        self.assertIn("502", result["stderr"])
+        self.assertEqual(result["svgs"], [])
+
+    def test_generator_fails_at_once_on_a_permanent_client_error(self):
+        for status in (404, 401, 403):
+            with self.subTest(status=status):
+                result = self.run_generator([{"status": status}])
+                self.assertNotEqual(result["code"], 0)
+                self.assertEqual(len(result["fetches"]), 1)
+                self.assertEqual(result["sleeps"], [])
+                self.assertIn(str(status), result["stderr"])
+                self.assertIn("https://api.github.com/repos/o/r", result["stderr"])
+                self.assertEqual(result["svgs"], [])
+
+    def test_commit_step_rebases_and_retries_a_rejected_push(self):
+        step = self.read_workflow().split("Commit the chart only when it actually changed", 1)[1]
+        self.assertIn('git push origin "HEAD:$TARGET_BRANCH"', step)
+        self.assertRegex(step, r"for attempt in 1 2 3; do")
+        self.assertIn('git fetch --depth=50 origin "$TARGET_BRANCH"', step)
+        self.assertIn('git rebase "origin/$TARGET_BRANCH"', step)
+        self.assertLess(step.index("for attempt in"), step.index("git push origin"))
+        self.assertLess(step.index("git rebase"), step.index("could not push the chart"))
+        self.assertIn("exit 1", step.split("could not push the chart", 1)[1])
+
+    @staticmethod
+    def repo_reply(count):
+        return {"status": 200, "body": {"stargazers_count": count}}
+
+    @staticmethod
+    def stars_reply():
+        return {
+            "status": 200,
+            "body": [
+                {"starred_at": "2024-01-01T00:00:00Z"},
+                {"starred_at": "2024-06-01T00:00:00Z"},
+            ],
+        }
+
+    def run_generator(self, replies):
+        """Run the extracted generator under node with fetch, timers and the
+        abort deadline mocked, in a scratch workspace. Returns exit code,
+        stderr, and what the mocks saw."""
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node is not available")
+
+        soon = str(int(__import__("time").time()) + 5)
+        for reply in replies:
+            for key, value in reply.get("headers", {}).items():
+                if value == "__SOON__":
+                    reply["headers"][key] = soon
+
+        preamble = """
+const __replies = JSON.parse(process.env.MOCK_REPLIES)
+const __log = { fetches: [], sleeps: [], timeouts: [] }
+const __realTimeout = AbortSignal.timeout.bind(AbortSignal)
+AbortSignal.timeout = (ms) => { __log.timeouts.push(ms); return __realTimeout(40) }
+globalThis.setTimeout = (fn, ms) => { __log.sleeps.push(ms); queueMicrotask(fn); return 0 }
+Math.random = () => 0
+globalThis.fetch = (url, init) => {
+  __log.fetches.push(String(url))
+  const reply = __replies.shift()
+  if (!reply) return Promise.reject(new Error('unexpected extra fetch'))
+  if (reply.hang) {
+    // AbortSignal.timeout timers are unref'd, so hold the loop open until it fires.
+    const keepAlive = setInterval(() => {}, 1000)
+    return new Promise((_, reject) =>
+      init.signal.addEventListener('abort', () => {
+        clearInterval(keepAlive)
+        reject(init.signal.reason)
+      }))
+  }
+  const headers = new Headers(reply.headers ?? {})
+  return Promise.resolve({
+    ok: reply.status >= 200 && reply.status < 300,
+    status: reply.status,
+    statusText: 'mock',
+    headers,
+    json: async () => reply.body,
+  })
+}
+process.on('exit', () => process.stdout.write('__LOG__' + JSON.stringify(__log)))
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "ws"
+            workspace.mkdir()
+            script = Path(tmp) / "generator.mjs"
+            script.write_text(preamble + self.read_generator())
+            env = {
+                "PATH": os.environ.get("PATH", ""),
+                "TARGET_REPO": "o/r",
+                "OUTPUT_PATH": "out/chart.svg",
+                "ACCENT": "#aabbcc",
+                "MAX_PAGES": "100",
+                "GITHUB_API_TOKEN": "x",
+                "GITHUB_WORKSPACE": str(workspace),
+                "MOCK_REPLIES": json.dumps(replies),
+            }
+            proc = subprocess.run(
+                [node, str(script)],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=60,
+            )
+            svgs = sorted(str(p.name) for p in workspace.rglob("*.svg"))
+
+        self.assertIn("__LOG__", proc.stdout, proc.stderr)
+        log = json.loads(proc.stdout.rsplit("__LOG__", 1)[1])
+        log.update(code=proc.returncode, stderr=proc.stderr, svgs=svgs)
+        return log
 
     def test_workflow_pins_actions_and_is_run_by_standards_validation(self):
         workflow = self.read_workflow()

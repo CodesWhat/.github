@@ -208,17 +208,75 @@ jobs:
             throw new Error(`max-pages must be a positive integer, got: ${process.env.MAX_PAGES}`)
           }
 
+          // One flaky response on page 60 of 100 shouldn't cost the whole run,
+          // and a hung socket shouldn't eat the job timeout. Each attempt has a
+          // 15 s deadline covering the body as well as the headers. Transient
+          // failures (network, timeout, 5xx, 429, and a 403 that is clearly a
+          // rate limit) retry up to 4 attempts inside one 7 minute budget.
+          // Anything else fails at once, so a bad credential or a missing repo
+          // isn't hammered.
+          const REQUEST_TIMEOUT_MS = 15000
+          const MAX_ATTEMPTS = 4
+          const FETCH_BUDGET_MS = 7 * 60 * 1000
+          const MAX_BACKOFF_MS = 30000
+          const fetchStarted = Date.now()
+          const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
+
+          // Retry-After (seconds or a date) wins, then x-ratelimit-reset
+          // (epoch seconds), then exponential backoff with jitter.
+          const retryDelayMs = (res, attempt) => {
+            const retryAfter = res?.headers.get('retry-after')
+            if (retryAfter) {
+              const seconds = Number(retryAfter)
+              const ms = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(retryAfter) - Date.now()
+              if (Number.isFinite(ms)) return Math.max(0, ms)
+            }
+            const reset = Number(res?.headers.get('x-ratelimit-reset'))
+            if (res?.headers.get('x-ratelimit-remaining') === '0' && Number.isFinite(reset) && reset > 0) {
+              return Math.max(0, reset * 1000 - Date.now()) + 1000
+            }
+            return Math.min(MAX_BACKOFF_MS, 1000 * 2 ** (attempt - 1) + Math.random() * 500)
+          }
+
           const api = async (path, accept) => {
-            const res = await fetch(`https://api.github.com/${path}`, {
-              headers: {
-                accept,
-                authorization: `Bearer ${auth}`,
-                'user-agent': 'codeswhat-starchart',
-                'x-github-api-version': '2022-11-28',
-              },
-            })
-            if (!res.ok) throw new Error(`GET ${path} -> ${res.status} ${res.statusText}`)
-            return res.json()
+            const url = `https://api.github.com/${path}`
+            for (let attempt = 1; ; attempt++) {
+              let res
+              let failure
+              try {
+                res = await fetch(url, {
+                  headers: {
+                    accept,
+                    authorization: `Bearer ${auth}`,
+                    'user-agent': 'codeswhat-starchart',
+                    'x-github-api-version': '2022-11-28',
+                  },
+                  signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+                })
+                if (res.ok) return await res.json()
+                failure = `${res.status} ${res.statusText}`
+              } catch (err) {
+                // Network error, deadline abort, or a body that died mid-read.
+                res = undefined
+                failure = err?.name === 'TimeoutError' || err?.name === 'AbortError'
+                  ? `timed out after ${REQUEST_TIMEOUT_MS} ms`
+                  : `network error: ${err?.message ?? err}`
+              }
+
+              const rateLimited =
+                res?.status === 429 ||
+                (res?.status === 403 &&
+                  (res.headers.get('x-ratelimit-remaining') === '0' || res.headers.has('retry-after')))
+              const retryable = !res || res.status >= 500 || rateLimited
+              if (!retryable) throw new Error(`GET ${url} -> ${failure}`)
+
+              const delay = retryDelayMs(res, attempt)
+              if (attempt >= MAX_ATTEMPTS || Date.now() - fetchStarted + delay > FETCH_BUDGET_MS) {
+                throw new Error(`GET ${url} -> ${failure} (gave up after ${attempt} attempt(s))`)
+              }
+              console.log(`::warning::GET ${url} -> ${failure}; retrying in ${Math.round(delay)} ms (attempt ${attempt} of ${MAX_ATTEMPTS})`)
+              await sleep(delay)
+            }
           }
 
           const total = (await api(`repos/${repo}`, 'application/vnd.github+json')).stargazers_count
@@ -558,4 +616,14 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -- "$OUTPUT_PATH" "$DARK_PATH"
           git commit -m "chore(docs): refresh the star-history chart"
-          git push origin "HEAD:$TARGET_BRANCH"
+          # Another run or a human can land on the branch between checkout and
+          # here. The commit touches only the two SVGs, so rebasing onto
+          # whatever arrived is safe. Bounded, so a real rejection still fails.
+          for attempt in 1 2 3; do
+            if git push origin "HEAD:$TARGET_BRANCH"; then exit 0; fi
+            echo "::warning::push rejected (attempt $attempt); rebasing onto origin/$TARGET_BRANCH"
+            git fetch --depth=50 origin "$TARGET_BRANCH"
+            git rebase "origin/$TARGET_BRANCH"
+          done
+          echo "::error::could not push the chart after 3 attempts" >&2
+          exit 1
