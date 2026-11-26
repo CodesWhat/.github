@@ -297,7 +297,7 @@ class ReusableCIContractTest(unittest.TestCase):
     def test_release_gate_keeps_authoritative_client_side_run_filtering(self):
         release = self.read_workflow(WORKFLOWS["release"])
 
-        self.assertIn("for page in 1 2 3 4 5; do", release)
+        self.assertIn("for ((page=1; page<=10; page++)); do", release)
         self.assertIn("/runs?per_page=100&page=${page}\"", release)
         self.assertIn("-lt 100 ]; then", release)
         self.assertNotRegex(release, r"runs\?[^\"\n]*(?:event|head_sha)=")
@@ -338,7 +338,27 @@ class ReusableCIContractTest(unittest.TestCase):
         self.assertEqual(1, len(result.requests), result.requests)
         self.assertTrue(result.requests[0].endswith("/runs?per_page=100&page=1"))
 
-    def test_release_gate_caps_paging_at_five_pages(self):
+    def test_release_gate_finds_a_target_run_past_five_pages(self):
+        filler = {
+            "head_sha": "b" * 40,
+            "event": "push",
+            "head_branch": "main",
+            "status": "completed",
+            "conclusion": "success",
+        }
+        exact_success = {**filler, "head_sha": TARGET_SHA}
+        result = self.run_release_gate(
+            {"ci-verify.yml": [filler] * 100},
+            extra_pages_by_workflow={
+                "ci-verify.yml": [[filler] * 100] * 4 + [[exact_success]]
+            },
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn(f"Found successful CI Verify push run for {TARGET_SHA}.", result.stdout)
+        self.assertEqual(6, len(result.requests), result.requests)
+
+    def test_release_gate_times_out_when_pages_are_exhausted_without_a_match(self):
         filler = {
             "head_sha": "b" * 40,
             "event": "push",
@@ -348,11 +368,28 @@ class ReusableCIContractTest(unittest.TestCase):
         }
         result = self.run_release_gate(
             {"ci-verify.yml": [filler] * 100},
-            extra_pages_by_workflow={"ci-verify.yml": [[filler] * 100] * 5},
+            extra_pages_by_workflow={"ci-verify.yml": [[filler] * 100] * 4},
         )
 
         self.assertNotEqual(0, result.returncode)
-        self.assertEqual(5, len(result.requests), result.requests)
+        self.assertIn("Timed out waiting for successful CI Verify push run", result.stdout + result.stderr)
+        self.assertEqual(6, len(result.requests), result.requests)
+
+    def test_release_gate_caps_paging_at_the_api_result_ceiling(self):
+        filler = {
+            "head_sha": "b" * 40,
+            "event": "push",
+            "head_branch": "main",
+            "status": "completed",
+            "conclusion": "success",
+        }
+        result = self.run_release_gate(
+            {"ci-verify.yml": [filler] * 100},
+            extra_pages_by_workflow={"ci-verify.yml": [[filler] * 100] * 14},
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(10, len(result.requests), result.requests)
 
     def test_release_gate_uses_one_shared_poll_budget_for_every_workflow(self):
         in_progress = {
