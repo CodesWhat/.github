@@ -35,6 +35,21 @@ contract tests that pin the shapes other repositories depend on.
   Verify promotions with tree equality
   (`git diff --quiet origin/main origin/dev/repository-standards`), never
   commit ancestry.
+- Before opening a promotion, check dev for open code scanning alerts at
+  high or above. `main`'s ruleset blocks merges on them and dev PRs don't.
+  This must print 0:
+
+  ```sh
+  alerts="repos/CodesWhat/.github/code-scanning/alerts"
+  gh api --paginate \
+    "$alerts?state=open&ref=refs/heads/dev/repository-standards&per_page=100" |
+    jq -s '[.[][] | .rule | select(.security_severity_level == "high"
+      or .security_severity_level == "critical" or .severity == "error")]
+      | length'
+  ```
+
+  Fix each alert, or dismiss it with a reason once it's verified as a false
+  positive. Never change the ruleset to get past it.
 - There is no shared admission queue; pace hosted review and heavy CI with
   the maintainer directly. Add `review-ready` for a PR's first CodeRabbit
   review and request subsequent fix-batch reviews explicitly.
