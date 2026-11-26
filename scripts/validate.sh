@@ -22,6 +22,7 @@ python3 .github/tests/main_is_released_contract_test.py
 python3 .github/tests/tracked_validation_test.py
 python3 .github/tests/changes_gate_contract_test.py
 python3 .github/tests/tree_receipt_contract_test.py
+python3 .github/tests/commit_msg_hook_contract_test.py
 python3 .github/tests/test_wiring_contract_test.py
 
 echo "==> compile python"

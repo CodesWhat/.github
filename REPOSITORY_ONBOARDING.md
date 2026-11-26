@@ -346,11 +346,17 @@ Add these only when the behavior exists:
   credential into the README. A hosted chart is live presentation rather than
   a release artifact, so it needs no refresh workflow.
 - [ ] A repository that still commits a first-party star-history SVG pair keeps
-  its pinned `starchart-refresh.yml` caller, on `release: [published]` plus
-  `workflow_dispatch` with the job granted `contents: write`, until it moves to
-  Star History through its own reviewed change. Trace other consumers of the
-  committed SVGs, such as a website, before removing them or the caller. The
-  reusable workflow keeps its interface for existing pins.
+  its pinned `starchart-refresh.yml` caller, on `workflow_dispatch` (and
+  `repository_dispatch` if used) with the job granted `contents: write`, until
+  it moves to Star History through its own reviewed change. Do not trigger it
+  with `release: [published]`. Releases published with GITHUB_TOKEN create no
+  downstream run, so the refresh silently never happens. The release-cut
+  workflow dispatches it instead, running `gh workflow run <caller>.yml --ref
+  "$BRANCH"` against the active integration branch, with `actions: write` on
+  the dispatching job. See the header of `.github/workflows/starchart-refresh.yml`.
+  Trace other consumers of the committed SVGs, such as a website, before
+  removing them or the caller. The reusable workflow keeps its interface for
+  existing pins.
 
 ### Qlty
 
