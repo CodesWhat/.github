@@ -1,10 +1,39 @@
 from pathlib import Path
+import os
 import re
+import stat
+import subprocess
+import tempfile
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/main-is-released.yml"
+
+
+def extract_script():
+    """Return the `run: |` body of the assertion step, de-indented."""
+    lines = WORKFLOW.read_text().splitlines()
+    start = next(
+        i for i, line in enumerate(lines)
+        if "- name: Assert main points at a release tag" in line
+    )
+    run = next(
+        i for i in range(start, len(lines)) if lines[i].strip() == "run: |"
+    )
+    body = []
+    indent = None
+    for line in lines[run + 1:]:
+        if line.strip():
+            width = len(line) - len(line.lstrip())
+            if indent is None:
+                indent = width
+            elif width < indent:
+                break
+            body.append(line[indent:])
+        else:
+            body.append("")
+    return "\n".join(body).rstrip() + "\n"
 
 
 class MainIsReleasedContractTest(unittest.TestCase):
@@ -115,6 +144,85 @@ class MainIsReleasedContractTest(unittest.TestCase):
 
         validation = (ROOT / ".github/workflows/standards-validation.yml").read_text()
         self.assertIn("main_is_released_contract_test.py", validation)
+
+    def test_main_is_released_script_behavior(self):
+        """Run the extracted bash against throwaway repos so the pass/fail
+        decision is exercised, not just grepped for."""
+        script_text = extract_script()
+        self.assertTrue(script_text.strip())
+        self.assertIn("set -euo pipefail", script_text)
+
+        def git(repo, *args):
+            subprocess.run(
+                ["git", *args], cwd=repo, check=True,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+
+        def commit(repo, name):
+            (Path(repo) / name).write_text(name)
+            git(repo, "add", name)
+            git(repo, "commit", "-q", "-m", name)
+
+        def no_tags(repo):
+            pass
+
+        def untagged_head(repo):
+            git(repo, "tag", "v1.0.0")
+            commit(repo, "second")
+
+        def tag_head(name):
+            def setup(repo):
+                git(repo, "tag", name)
+            return setup
+
+        def tag_old(repo):
+            git(repo, "tag", "v1.2.3")
+            commit(repo, "second")
+
+        cases = (
+            ("no tags", no_tags, "true", False, "stderr", "no tags"),
+            ("untagged head", untagged_head, "true", False, "stderr", "not a tagged release"),
+            ("moving tag", tag_head("snapshot"), "true", False, "stderr", "not a release version tag"),
+            ("release tag", tag_head("v1.2.3"), "true", True, "stdout", "released at v1.2.3"),
+            ("prerelease denied", tag_head("v1.2.3-rc.1"), "false", False, None, None),
+            ("prerelease allowed", tag_head("v1.2.3-rc.1"), "true", True, None, None),
+            ("tag on older commit", tag_old, "true", False, None, None),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            sleep = bin_dir / "sleep"
+            sleep.write_text("#!/bin/sh\nexit 0\n")
+            sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            script = Path(tmp) / "assert.sh"
+            script.write_text(script_text)
+            env = {
+                **os.environ,
+                "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+            }
+
+            for label, setup, allow, ok, stream, needle in cases:
+                with self.subTest(label):
+                    repo = Path(tmp) / label.replace(" ", "-")
+                    repo.mkdir()
+                    git(repo, "init", "-q")
+                    git(repo, "config", "user.name", "test")
+                    git(repo, "config", "user.email", "test@example.com")
+                    git(repo, "config", "commit.gpgsign", "false")
+                    git(repo, "config", "tag.gpgsign", "false")
+                    commit(repo, "first")
+                    setup(repo)
+                    result = subprocess.run(
+                        ["bash", str(script)], cwd=repo, env={**env, "ALLOW_PRERELEASE": allow},
+                        capture_output=True, text=True,
+                    )
+                    if ok:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                    else:
+                        self.assertNotEqual(result.returncode, 0, result.stdout)
+                    if needle:
+                        self.assertIn(needle, getattr(result, stream))
 
     def read_workflow(self):
         self.assertTrue(WORKFLOW.is_file(), f"missing workflow: {WORKFLOW}")
