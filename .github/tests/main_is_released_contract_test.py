@@ -4,6 +4,7 @@ import re
 import stat
 import subprocess
 import tempfile
+import textwrap
 import unittest
 
 
@@ -59,14 +60,23 @@ class MainIsReleasedContractTest(unittest.TestCase):
     def test_the_invariant_is_an_exact_tag_match(self):
         workflow = self.read_workflow()
 
-        self.assertIn("git describe --exact-match --tags HEAD", workflow)
+        self.assertIn("git tag --points-at HEAD", workflow)
+        self.assertNotIn("--exact-match", workflow)
         # --abbrev=0 alone answers "what tag is nearest", which is true of a
         # drifted main too. It may only be used to report inside the failure
         # branch, never in the condition that decides pass or fail — so the
-        # decisive slice is the condition line, not the whole if-block.
-        decisive = workflow.split('if tag="$(', 1)[1].split("\n", 1)[0]
-        self.assertIn("--exact-match", decisive)
+        # decisive slice is the line reading the tags, not the whole block.
+        decisive = workflow.split('tags="$(', 2)[1].split("\n", 1)[0]
+        self.assertIn("--points-at HEAD", decisive)
         self.assertNotIn("--abbrev=0", decisive)
+
+    def test_every_tag_on_head_is_considered(self):
+        """Several tags can point at main. Judging only one (as describe does)
+        fails a correctly released main when a non-release tag wins."""
+        workflow = self.read_workflow()
+
+        self.assertIn('done <<< "$tags"', workflow)
+        self.assertIn("while IFS= read -r t", workflow)
 
     def test_no_tags_is_reported_as_unevaluable_not_as_drift(self):
         """A repo with zero tags produces the same 'not tagged' as one that
@@ -77,7 +87,7 @@ class MainIsReleasedContractTest(unittest.TestCase):
         self.assertIn('if [ -z "$(git tag)" ]; then', workflow)
         self.assertLess(
             workflow.index('if [ -z "$(git tag)" ]'),
-            workflow.index("git describe --exact-match"),
+            workflow.index("git tag --points-at HEAD"),
         )
 
     def test_shallow_checkout_would_break_the_measurement(self):
@@ -94,12 +104,13 @@ class MainIsReleasedContractTest(unittest.TestCase):
         workflow = self.read_workflow()
 
         self.assertIn("[0-9]+\\.[0-9]+\\.[0-9]+", workflow)
-        self.assertIn("not a release version tag", workflow)
+        self.assertIn("none of which is a release version tag", workflow)
 
         # Prerelease detection keys on the hyphen AFTER the version, not any
         # hyphen anywhere — the old `case $tag in *-*)` called `my-tag` a
         # prerelease and would have accepted it under allow-prerelease.
         self.assertNotIn('case "$tag" in', workflow)
+        self.assertIn("pre_re=", workflow)
         self.assertIn("^v?[0-9]+\\.[0-9]+\\.[0-9]+-", workflow)
 
     def test_the_merge_to_tag_window_is_retried_not_reported_as_drift(self):
@@ -124,7 +135,7 @@ class MainIsReleasedContractTest(unittest.TestCase):
         workflow = self.read_workflow()
 
         self.assertIn("        default: false\n", workflow)
-        self.assertIn('if [ "$ALLOW_PRERELEASE" != "true" ]', workflow)
+        self.assertIn('[ "$ALLOW_PRERELEASE" != "true" ]', workflow)
         self.assertIn("ALLOW_PRERELEASE: ${{ inputs.allow-prerelease }}", workflow)
 
     def test_failures_say_what_to_do_next(self):
@@ -182,7 +193,7 @@ class MainIsReleasedContractTest(unittest.TestCase):
         cases = (
             ("no tags", no_tags, "true", False, "stderr", "no tags"),
             ("untagged head", untagged_head, "true", False, "stderr", "not a tagged release"),
-            ("moving tag", tag_head("snapshot"), "true", False, "stderr", "not a release version tag"),
+            ("moving tag", tag_head("snapshot"), "true", False, "stderr", "none of which is a release version tag"),
             ("release tag", tag_head("v1.2.3"), "true", True, "stdout", "released at v1.2.3"),
             ("prerelease denied", tag_head("v1.2.3-rc.1"), "false", False, None, None),
             ("prerelease allowed", tag_head("v1.2.3-rc.1"), "true", True, None, None),
@@ -223,6 +234,62 @@ class MainIsReleasedContractTest(unittest.TestCase):
                         self.assertNotEqual(result.returncode, 0, result.stdout)
                     if needle:
                         self.assertIn(needle, getattr(result, stream))
+
+    def run_check(self, setup, allow_prerelease="false"):
+        """Run the real step script against a throwaway repo."""
+        workflow = self.read_workflow()
+        step = workflow.split("- name: Assert main points at a release tag", 1)[1]
+        body = step.split("        run: |\n", 1)[1]
+        script = textwrap.dedent(body)
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {
+                **os.environ,
+                "ALLOW_PRERELEASE": allow_prerelease,
+                "GIT_CONFIG_GLOBAL": os.devnull,
+                "GIT_CONFIG_SYSTEM": os.devnull,
+            }
+
+            def git(*args):
+                subprocess.run(
+                    ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", *args],
+                    cwd=tmp, env=env, check=True, capture_output=True,
+                )
+
+            git("init", "-q")
+            git("commit", "-q", "--allow-empty", "-m", "release")
+            setup(git)
+            return subprocess.run(
+                ["bash", "-c", script], cwd=tmp, env=env, capture_output=True, text=True
+            )
+
+    def test_behavior_release_tag_among_non_release_tags_passes(self):
+        def setup(git):
+            git("tag", "v1.2.3")
+            git("tag", "-a", "v1", "-m", "moving")
+            git("tag", "-a", "latest", "-m", "moving")
+
+        result = self.run_check(setup)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("main is released at v1.2.3", result.stdout)
+
+    def test_behavior_final_release_beats_prerelease_when_prereleases_disallowed(self):
+        def setup(git):
+            git("tag", "-a", "v1.0.0-rc.1", "-m", "rc")
+            git("tag", "v1.0.0")
+
+        result = self.run_check(setup)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("main is released at v1.0.0", result.stdout)
+
+    def test_behavior_only_prerelease_fails_by_default(self):
+        result = self.run_check(lambda git: git("tag", "v1.0.0-rc.1"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("prerelease v1.0.0-rc.1", result.stderr)
+
+    def test_behavior_only_non_release_tag_fails(self):
+        result = self.run_check(lambda git: git("tag", "latest"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("none of which is a release version tag", result.stderr)
 
     def read_workflow(self):
         self.assertTrue(WORKFLOW.is_file(), f"missing workflow: {WORKFLOW}")
