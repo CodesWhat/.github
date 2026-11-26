@@ -191,6 +191,24 @@ class StarchartRefreshContractTest(unittest.TestCase):
         for dead in ("release:", "types: [published]", "cron", "schedule:"):
             self.assertNotIn(dead, example)
 
+    def test_onboarding_doc_recommends_dispatch_not_release_trigger(self):
+        doc = (ROOT / "REPOSITORY_ONBOARDING.md").read_text()
+        start = doc.index("A repository that still commits a first-party star-history")
+        item = " ".join(doc[start:].split("\n### ", 1)[0].split())
+
+        for expected in (
+            "workflow_dispatch",
+            "integration branch",
+            "`actions: write`",
+            "`contents: write`",
+            "Do not trigger it with `release: [published]`",
+        ):
+            self.assertIn(expected, item)
+
+        # Any mention of the release trigger must sit inside a prohibition.
+        for match in re.finditer(re.escape("`release: [published]`"), item):
+            self.assertRegex(item[: match.start()], r"Do not trigger it with $")
+
     def test_the_suppression_trap_is_documented_not_just_avoided(self):
         """Removing the bad example only stops it being copied from here. The
         reason has to travel with it, or the next person reaches for the
