@@ -6,10 +6,20 @@ import subprocess
 import tempfile
 import textwrap
 import unittest
+import unittest.mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/main-is-released.yml"
+
+
+def isolated_env(**extra):
+    """os.environ minus GIT_* variables. Under a git hook, GIT_DIR and
+    GIT_INDEX_FILE point at the real repository, and a throwaway repo's git
+    calls would write there instead."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(extra)
+    return env
 
 
 def extract_script():
@@ -156,6 +166,14 @@ class MainIsReleasedContractTest(unittest.TestCase):
         validation = (ROOT / ".github/workflows/standards-validation.yml").read_text()
         self.assertIn("main_is_released_contract_test.py", validation)
 
+    def test_isolated_env_drops_hook_git_variables(self):
+        """Pre-push runs these tests with GIT_DIR set to the real repo."""
+        with unittest.mock.patch.dict(os.environ, {"GIT_DIR": "/real/.git", "GIT_INDEX_FILE": "/real/index"}):
+            env = isolated_env(EXTRA="1")
+        self.assertNotIn("GIT_DIR", env)
+        self.assertNotIn("GIT_INDEX_FILE", env)
+        self.assertEqual("1", env["EXTRA"])
+
     def test_main_is_released_script_behavior(self):
         """Run the extracted bash against throwaway repos so the pass/fail
         decision is exercised, not just grepped for."""
@@ -165,7 +183,7 @@ class MainIsReleasedContractTest(unittest.TestCase):
 
         def git(repo, *args):
             subprocess.run(
-                ["git", *args], cwd=repo, check=True,
+                ["git", *args], cwd=repo, check=True, env=isolated_env(),
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
 
@@ -208,10 +226,7 @@ class MainIsReleasedContractTest(unittest.TestCase):
             sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
             script = Path(tmp) / "assert.sh"
             script.write_text(script_text)
-            env = {
-                **os.environ,
-                "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-            }
+            env = isolated_env(PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
 
             for label, setup, allow, ok, stream, needle in cases:
                 with self.subTest(label):
@@ -242,12 +257,11 @@ class MainIsReleasedContractTest(unittest.TestCase):
         body = step.split("        run: |\n", 1)[1]
         script = textwrap.dedent(body)
         with tempfile.TemporaryDirectory() as tmp:
-            env = {
-                **os.environ,
-                "ALLOW_PRERELEASE": allow_prerelease,
-                "GIT_CONFIG_GLOBAL": os.devnull,
-                "GIT_CONFIG_SYSTEM": os.devnull,
-            }
+            env = isolated_env(
+                ALLOW_PRERELEASE=allow_prerelease,
+                GIT_CONFIG_GLOBAL=os.devnull,
+                GIT_CONFIG_SYSTEM=os.devnull,
+            )
 
             def git(*args):
                 subprocess.run(
