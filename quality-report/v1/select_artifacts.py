@@ -50,6 +50,7 @@ _NUMBER = re.compile(r"-?[0-9]+")
 BRACE_MAX = 100000
 BRACE_MAX_LENGTH = 4000000
 BRACE_MAX_DEPTH = 200
+BRACE_MAX_DIGITS = 4000
 
 
 def _brace_range(text):
@@ -81,6 +82,12 @@ def _brace_range(text):
     return result
 
 
+def _brace_capped():
+    return SelectionError(
+        "brace expansion in artifact pattern exceeds its size limit and would drop alternatives"
+    )
+
+
 def _brace_combine(acc, prefix_text, values, drop_empties):
     out = []
     length = 0
@@ -94,17 +101,21 @@ def _brace_combine(acc, prefix_text, values, drop_empties):
             candidates = nonempty
         for value in candidates:
             if len(out) >= BRACE_MAX:
-                return out
+                raise _brace_capped()
             expansion = prefix + value
             if length + len(expansion) > BRACE_MAX_LENGTH:
-                return out
+                raise _brace_capped()
             out.append(expansion)
             length += len(expansion)
     return out
 
 
 def _brace_numeric(text):
-    return int(text, 10) if _NUMBER.fullmatch(text) else ord(text[0])
+    if not _NUMBER.fullmatch(text):
+        return ord(text[0])
+    if len(text) > BRACE_MAX_DIGITS:
+        raise SelectionError("brace range bound in artifact pattern is too large")
+    return int(text, 10)
 
 
 def _brace_sequence(body, alpha):
@@ -120,7 +131,9 @@ def _brace_sequence(body, alpha):
     values = []
     length = 0
     i = start
-    while (i >= stop if reverse else i <= stop) and len(values) < BRACE_MAX:
+    while i >= stop if reverse else i <= stop:
+        if len(values) >= BRACE_MAX:
+            raise _brace_capped()
         if alpha:
             value = chr(i)
             if value == "\\":
@@ -133,7 +146,7 @@ def _brace_sequence(body, alpha):
                     zeros = "0" * need
                     value = "-" + zeros + value[1:] if i < 0 else zeros + value
         if length + len(value) > BRACE_MAX_LENGTH:
-            break
+            raise _brace_capped()
         values.append(value)
         length += len(value)
         i += step
@@ -223,18 +236,14 @@ def _brace_expand_inner(text, depth, is_top):
             drops = drop_empties and not post and not pre and not any(acc)
             values = []
             length = 0
-            done = False
             for member in members:
                 for value in _brace_expand_inner(member, depth + 1, False):
                     if drops and not value:
                         continue
                     if len(values) >= BRACE_MAX or length + len(value) > BRACE_MAX_LENGTH:
-                        done = True
-                        break
+                        raise _brace_capped()
                     values.append(value)
                     length += len(value)
-                if done:
-                    break
         acc = _brace_combine(acc, pre, values, drop_empties and not post)
         if not post:
             break
@@ -257,10 +266,12 @@ def expand_braces(pattern):
     for plain, sentinel in _BRACE_ESCAPES:
         text = text.replace(plain, sentinel)
     expanded = []
+    seen = set()
     for item in _brace_expand_inner(text, 0, True):
         for sentinel, plain in _BRACE_UNESCAPES:
             item = item.replace(sentinel, plain)
-        if item not in expanded:
+        if item not in seen:
+            seen.add(item)
             expanded.append(item)
     return expanded
 
@@ -293,6 +304,7 @@ _STAR_DOT_STAR = re.compile(r"\*+\.\*+")
 _DOT_STAR = re.compile(r"\.\*+")
 _MAX_PATTERN_LENGTH = 65536
 _MAX_EXTGLOB_RECURSION = 2
+_MAX_PARSE_NESTING = 64
 
 
 def _re_escape(char):
@@ -764,7 +776,9 @@ class _Ast(object):
         return final, uflag, True
 
 
-def _parse_ast(text, ast, pos, ext_depth):
+def _parse_ast(text, ast, pos, ext_depth, nesting=0):
+    if nesting > _MAX_PARSE_NESTING:
+        raise SelectionError("extglob nesting is too deep in artifact pattern")
     escaping = False
     in_brace = False
     brace_start = -1
@@ -801,7 +815,7 @@ def _parse_ast(text, ast, pos, ext_depth):
                 ast.push(acc)
                 acc = ""
                 ext = _Ast(char, ast)
-                i = _parse_ast(text, ext, i, ext_depth + 1)
+                i = _parse_ast(text, ext, i, ext_depth + 1, nesting + 1)
                 ast.push(ext)
                 continue
             acc += char
@@ -842,7 +856,7 @@ def _parse_ast(text, ast, pos, ext_depth):
             acc = ""
             ext = _Ast(char, part)
             part.push(ext)
-            i = _parse_ast(text, ext, i, ext_depth + depth_add)
+            i = _parse_ast(text, ext, i, ext_depth + depth_add, nesting + 1)
             continue
         if char == "|":
             part.push(acc)
@@ -904,6 +918,19 @@ def _translate_part(glob):
     return ("re", source, uflag)
 
 
+def _reject_escaped_pipe(text):
+    escaping = False
+    for char in text:
+        if escaping:
+            escaping = False
+            if char == "|":
+                raise SelectionError(
+                    "unsupported escaped pipe in artifact pattern: minimatch turns it into regex alternation"
+                )
+        elif char == "\\":
+            escaping = True
+
+
 def _part_matcher(glob):
     if glob == "**":
         return lambda raw, units: not raw.startswith(".")
@@ -914,10 +941,12 @@ def _part_matcher(glob):
         return lambda raw, units: len(units) != 0 and not units.startswith(".")
     found = _STAR_EXT.fullmatch(glob)
     if found:
+        _reject_escaped_pipe(found.group(1))
         ext = _utf16_units(found.group(1))
         return lambda raw, units: not units.startswith(".") and units.endswith(ext)
     found = _QMARKS.fullmatch(glob)
     if found:
+        _reject_escaped_pipe(found.group(1) or "")
         size = len(units_glob)
         ext = _utf16_units(found.group(1) or "")
         return lambda raw, units: (

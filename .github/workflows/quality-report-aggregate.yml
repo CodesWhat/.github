@@ -20,7 +20,7 @@ on:
         required: true
         type: string
       result_artifact_pattern:
-        description: Artifact-name pattern containing target-result.json files, matched like download-artifact's minimatch pattern (* ? [] {a,b} and extglob such as @(a|b))
+        description: Artifact-name pattern containing target-result.json files, matched with minimatch 10.2.6 default options as the compatibility target (* ? [] {a,b} and extglob such as @(a|b)); the deepest extglob nesting, escaped pipes, path segments like ** and .., and oversized brace expansions fail the selection instead of matching
         required: false
         type: string
         default: quality-result-*

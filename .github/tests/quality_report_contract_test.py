@@ -268,6 +268,42 @@ class QualityReportContractTest(unittest.TestCase):
                         pattern=pattern,
                     )
 
+    def refuses(self, pattern):
+        error = SELECTOR_MODULE["SelectionError"]
+        with self.assertRaises(error):
+            self.select(
+                [self.artifact(1, "2026-08-13T12:01:00Z", name="quality-result-a")],
+                pattern=pattern,
+            )
+
+    def test_oversized_brace_range_bound_is_a_selection_error(self):
+        self.refuses("a-{1.." + "9" * 4301 + "}")
+        self.refuses("a-{" + "9" * 4301 + "..1}")
+        self.assertEqual(["a-1", "a-2", "a-3"], SELECTOR_MODULE["expand_braces"]("a-{1..3}"))
+
+    def test_brace_expansion_deduplicates_a_large_range_quickly(self):
+        expanded = SELECTOR_MODULE["expand_braces"]("a-{0..99999}")
+        self.assertEqual(100000, len(expanded))
+        self.assertEqual("a-0", expanded[0])
+        self.assertEqual(["a-1", "a-2"], SELECTOR_MODULE["expand_braces"]("a-{1,2,1}"))
+
+    def test_deeply_nested_extglob_is_a_selection_error(self):
+        self.refuses("@(" * 2000 + "a" + ")" * 2000)
+        self.refuses("@(" * 65 + "a" + ")" * 65)
+        self.assertTrue(SELECTOR_MODULE["matches"]("a", "@(@(a))"))
+
+    def test_escaped_pipe_is_refused_before_suffix_shortcuts(self):
+        self.refuses("*a\\|b")
+        self.refuses("??\\|b")
+        self.assertTrue(SELECTOR_MODULE["matches"]("xa", "*a"))
+        self.assertTrue(SELECTOR_MODULE["matches"]("b", "@(a|b)"))
+
+    def test_brace_expansion_cap_never_drops_alternatives_silently(self):
+        self.refuses("!{quality-result-{0..99999},a/../b}")
+        self.refuses("!{quality-result-{0..1},a/../b}")
+        self.refuses("{0..100000}")
+        self.refuses("{0..99999}{a,b}")
+
     def test_brace_expansion_handles_nesting_and_literals(self):
         expand = SELECTOR_MODULE["expand_braces"]
         self.assertEqual(["a-x-1", "a-x-2", "a-y"], expand("a-{x-{1,2},y}"))
