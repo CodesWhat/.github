@@ -306,6 +306,7 @@ _MAX_PATTERN_LENGTH = 65536
 _MAX_EXTGLOB_RECURSION = 2
 _MAX_PARSE_NESTING = 64
 _MAX_AST_WORK = 30000
+_MAX_REGEX_CHARS = 1000000
 
 
 class _Budget(object):
@@ -313,12 +314,18 @@ class _Budget(object):
     compiling one pattern. Each !(...) copies its later siblings, so chained
     negations grow exponentially; the budget fails that before it is paid."""
 
-    def __init__(self, limit=_MAX_AST_WORK):
+    def __init__(self, limit=_MAX_AST_WORK, char_limit=_MAX_REGEX_CHARS):
         self.remaining = limit
+        self.chars_remaining = char_limit
 
     def spend(self, amount=1):
         self.remaining -= amount
         if self.remaining < 0:
+            raise SelectionError("extglob expansion is too large in artifact pattern")
+
+    def spend_chars(self, amount):
+        self.chars_remaining -= amount
+        if self.chars_remaining < 0:
             raise SelectionError("extglob expansion is too large in artifact pattern")
 
 
@@ -664,6 +671,7 @@ class _Ast(object):
     def copy_in(self, part):
         if isinstance(part, str):
             self.budget.spend()
+            self.budget.spend_chars(len(part))
             self.push(part)
         else:
             self.push(part.clone(self))
@@ -982,6 +990,7 @@ def _part_matcher(glob, budget):
         kind, value, uflag = _translate_part(units_glob, budget)
         if kind == "literal":
             return lambda raw, units: units == value
+    budget.spend_chars(len(value))
     try:
         compiled = re.compile(value)
     except (re.error, OverflowError, RecursionError) as error:

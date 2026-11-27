@@ -300,6 +300,13 @@ class QualityReportContractTest(unittest.TestCase):
         self.refuses("a" + "!(x|y|z)" * 8)
         self.assertLess(time.monotonic() - started, 2)
 
+    def test_negation_copies_of_a_long_literal_are_a_selection_error(self):
+        started = time.monotonic()
+        self.refuses("quality-result-" + "!(x)" * 10 + "a" * 60000)
+        matches = SELECTOR_MODULE["matches"]
+        self.assertTrue(matches("a" * 60000, "*" + "a" * 59999))
+        self.assertLess(time.monotonic() - started, 2)
+
     def test_ordinary_negation_groups_still_match(self):
         matches = SELECTOR_MODULE["matches"]
         started = time.monotonic()
