@@ -117,7 +117,13 @@ Target result JSON is always uploaded; crash forensics remain failure-only.
 Completeness requires fresh results for every expected target. The aggregate
 job downloads only artifacts matching `result_artifact_pattern` that were
 created strictly after the current attempt started, selected by explicit
-artifact ID. Results retained from an earlier attempt never count, and a
+artifact ID. The pattern is matched the way `actions/download-artifact`
+matched it before: with minimatch 10 default options, so `*`, `?`, `[...]`,
+`{a,b}` and `{1..3}` braces, and extglob (`@(a|b)`, `?()`, `+()`, `*()`,
+`!()`) all work. A leading `!` negates the whole pattern, so `!(a)*` is not an
+extglob. Artifact names have no path separator, so a pattern that needs
+`**` or `..` segments, or that escapes a pipe, fails the selection instead of
+guessing. Results retained from an earlier attempt never count, and a
 partial rerun that lacks replacements fails closed: `complete=false`,
 `outcome=error`, no aggregate score, and a nonzero exit. An empty selection
 downloads nothing instead of falling back to every artifact.

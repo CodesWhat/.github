@@ -20,7 +20,7 @@ on:
         required: true
         type: string
       result_artifact_pattern:
-        description: Artifact-name glob (* ? [] and {a,b} alternatives; extglob is not supported) containing target-result.json files
+        description: Artifact-name pattern containing target-result.json files, matched like download-artifact's minimatch pattern (* ? [] {a,b} and extglob such as @(a|b))
         required: false
         type: string
         default: quality-result-*
