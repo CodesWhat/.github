@@ -35,21 +35,31 @@ contract tests that pin the shapes other repositories depend on.
   Verify promotions with tree equality
   (`git diff --quiet origin/main origin/dev/repository-standards`), never
   commit ancestry.
-- Before opening a promotion, check dev for open code scanning alerts at
-  high or above. `main`'s ruleset blocks merges on them and dev PRs don't.
-  This must print 0:
+- After opening a promotion PR, check its code scanning result before
+  approving. `main`'s ruleset blocks merges on open alerts at high or above,
+  and CodeQL here only analyzes pull requests, on `refs/pull/<n>/merge`, so a
+  dev-branch query always returns 0 and proves nothing. Wait for an analysis
+  of the PR's current test merge commit, then count the open alerts on that
+  ref. With `n` set to the promotion PR number, this must print 0:
 
   ```sh
-  alerts="repos/CodesWhat/.github/code-scanning/alerts"
-  gh api --paginate \
-    "$alerts?state=open&ref=refs/heads/dev/repository-standards&per_page=100" |
-    jq -s '[.[][] | .rule | select(.security_severity_level == "high"
-      or .security_severity_level == "critical" or .severity == "error")]
-      | length'
+  repo="repos/CodesWhat/.github"
+  ref="refs/pull/$n/merge"
+  merge="$(gh api "$repo/pulls/$n" --jq .merge_commit_sha)"
+  if gh api --paginate "$repo/code-scanning/analyses?ref=$ref&per_page=100" |
+    jq -se --arg m "$merge" 'any(.[][]; .commit_sha == $m)' >/dev/null; then
+    gh api --paginate \
+      "$repo/code-scanning/alerts?state=open&ref=$ref&per_page=100" |
+      jq -s '[.[][] | .rule | select(.security_severity_level == "high"
+        or .security_severity_level == "critical" or .severity == "error")]
+        | length'
+  else
+    echo "no code scanning analysis of $merge yet"
+  fi
   ```
 
-  Fix each alert, or dismiss it with a reason once it's verified as a false
-  positive. Never change the ruleset to get past it.
+  Approve only at 0. Fix each alert, or dismiss it with a reason once it's
+  verified as a false positive. Never change the ruleset to get past it.
 - There is no shared admission queue; pace hosted review and heavy CI with
   the maintainer directly. Add `review-ready` for a PR's first CodeRabbit
   review and request subsequent fix-batch reviews explicitly.
