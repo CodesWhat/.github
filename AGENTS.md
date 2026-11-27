@@ -40,21 +40,24 @@ contract tests that pin the shapes other repositories depend on.
   and CodeQL here only analyzes pull requests, on `refs/pull/<n>/merge`, so a
   dev-branch query always returns 0 and proves nothing. Wait for an analysis
   of the PR's current test merge commit, then count the open alerts on that
-  ref. With `n` set to the promotion PR number, this must print 0:
+  ref. With `n` set to the promotion PR number, run this in bash. It must
+  print 0:
 
-  ```sh
+  ```bash
   repo="repos/CodesWhat/.github"
   ref="refs/pull/$n/merge"
-  merge="$(gh api "$repo/pulls/$n" --jq .merge_commit_sha)"
-  if gh api --paginate "$repo/code-scanning/analyses?ref=$ref&per_page=100" |
-    jq -se --arg m "$merge" 'any(.[][]; .commit_sha == $m)' >/dev/null; then
-    gh api --paginate \
-      "$repo/code-scanning/alerts?state=open&ref=$ref&per_page=100" |
-      jq -s '[.[][] | .rule | select(.security_severity_level == "high"
-        or .security_severity_level == "critical" or .severity == "error")]
-        | length'
+  if merge="$(gh api "$repo/pulls/$n" --jq .merge_commit_sha)" &&
+    analyses="$(gh api --paginate \
+      "$repo/code-scanning/analyses?ref=$ref&per_page=100")" &&
+    jq -se --arg m "$merge" 'any(.[][]; .commit_sha == $m)' \
+      <<<"$analyses" >/dev/null &&
+    alerts="$(gh api --paginate \
+      "$repo/code-scanning/alerts?state=open&ref=$ref&per_page=100")"; then
+    jq -s '[.[][] | .rule | select(.security_severity_level == "high"
+      or .security_severity_level == "critical" or .severity == "error")]
+      | length' <<<"$alerts"
   else
-    echo "no code scanning analysis of $merge yet"
+    echo "check failed or no code scanning analysis of the merge commit yet"
   fi
   ```
 
