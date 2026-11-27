@@ -8,13 +8,18 @@ contract tests that pin the shapes other repositories depend on.
 ## What lives here
 
 - `.github/workflows/go-ci.yml`, `node-ci.yml`, `release-gate.yml`,
-  `greptile-summon.yml`, `quality-report-aggregate.yml` — reusable workflows
+  `greptile-summon.yml`, `quality-report-aggregate.yml`,
+  `main-is-released.yml`, `starchart-refresh.yml`: reusable workflows
   consumed by other CodesWhat repositories.
-- `.github/tests/` — contract tests. These are the public API of the org's
+- `actions/changes-gate` and `actions/tree-receipt/{verify,record}`:
+  composite actions consumers pin the same way. Each has its own README and
+  contract test (`changes_gate_contract_test.py`,
+  `tree_receipt_contract_test.py`).
+- `.github/tests/`: contract tests. These are the public API of the org's
   shared configs (the `greptile.json` shape, the quality-report v1 contract,
   the reusable CI inputs). Change a contract test and its consumers together,
   never one side alone.
-- `profile/` — the organization profile README plus generated SVG assets
+- `profile/`: the organization profile README plus generated SVG assets
   from `scripts/generate_profile_svg.py`. The untracked
   `profile/font_reference.svg` is user-owned; leave it alone.
 
