@@ -52,7 +52,8 @@ contract tests that pin the shapes other repositories depend on.
     jq -se --arg m "$merge" 'any(.[][]; .commit_sha == $m)' \
       <<<"$analyses" >/dev/null &&
     alerts="$(gh api --paginate \
-      "$repo/code-scanning/alerts?state=open&ref=$ref&per_page=100")"; then
+      "$repo/code-scanning/alerts?state=open&ref=$ref&per_page=100")" &&
+    [ "$(gh api "$repo/pulls/$n" --jq .merge_commit_sha)" = "$merge" ]; then
     jq -s '[.[][] | .rule | select(.security_severity_level == "high"
       or .security_severity_level == "critical" or .severity == "error")]
       | length' <<<"$alerts"
@@ -61,7 +62,8 @@ contract tests that pin the shapes other repositories depend on.
   fi
   ```
 
-  Approve only at 0. Fix each alert, or dismiss it with a reason once it's
+  Approve only at 0, at the head the check ran on, and run it again after any
+  push. Fix each alert, or dismiss it with a reason once it's
   verified as a false positive. Never change the ruleset to get past it.
 - There is no shared admission queue; pace hosted review and heavy CI with
   the maintainer directly. Add `review-ready` for a PR's first CodeRabbit
