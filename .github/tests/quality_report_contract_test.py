@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -291,6 +292,27 @@ class QualityReportContractTest(unittest.TestCase):
         self.refuses("@(" * 2000 + "a" + ")" * 2000)
         self.refuses("@(" * 65 + "a" + ")" * 65)
         self.assertTrue(SELECTOR_MODULE["matches"]("a", "@(@(a))"))
+
+    def test_many_negation_groups_is_a_selection_error(self):
+        started = time.monotonic()
+        self.refuses("quality-result-" + "!(x)" * 14)
+        self.refuses("quality-result-" + "!(x)" * 25)
+        self.refuses("a" + "!(x|y|z)" * 8)
+        self.assertLess(time.monotonic() - started, 2)
+
+    def test_ordinary_negation_groups_still_match(self):
+        matches = SELECTOR_MODULE["matches"]
+        started = time.monotonic()
+        self.assertTrue(matches("ab", "!(a)!(b)"))
+        self.assertTrue(matches("xy", "!(a)!(b)"))
+        self.assertTrue(matches("quality-result-y", "quality-result-!(x)"))
+        self.assertFalse(matches("quality-result-x", "quality-result-!(x)"))
+        self.assertTrue(matches("pre-q-r", "pre-!(a)-!(b)"))
+        self.assertFalse(matches("pre-a-r", "pre-!(a)-!(a)"))
+        eight = "q-" + "!(x)" * 8
+        self.assertTrue(matches("q-yyyyyyyy", eight))
+        self.assertTrue(matches("q-y", eight))
+        self.assertLess(time.monotonic() - started, 2)
 
     def test_escaped_pipe_is_refused_before_suffix_shortcuts(self):
         self.refuses("*a\\|b")

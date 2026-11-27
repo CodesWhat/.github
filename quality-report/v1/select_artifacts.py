@@ -305,6 +305,21 @@ _DOT_STAR = re.compile(r"\.\*+")
 _MAX_PATTERN_LENGTH = 65536
 _MAX_EXTGLOB_RECURSION = 2
 _MAX_PARSE_NESTING = 64
+_MAX_AST_WORK = 30000
+
+
+class _Budget(object):
+    """Cumulative count of syntax-tree nodes created, copied or rendered while
+    compiling one pattern. Each !(...) copies its later siblings, so chained
+    negations grow exponentially; the budget fails that before it is paid."""
+
+    def __init__(self, limit=_MAX_AST_WORK):
+        self.remaining = limit
+
+    def spend(self, amount=1):
+        self.remaining -= amount
+        if self.remaining < 0:
+            raise SelectionError("extglob expansion is too large in artifact pattern")
 
 
 def _re_escape(char):
@@ -512,10 +527,12 @@ def _parse_glob(glob, no_empty):
 class _Ast(object):
     """Extglob syntax tree, following minimatch's AST."""
 
-    def __init__(self, kind, parent):
+    def __init__(self, kind, parent, budget=None):
         self.type = kind
         self.parent = parent
         self.root = parent.root if parent is not None else self
+        self.budget = parent.budget if parent is not None else (budget or _Budget())
+        self.budget.spend()
         self.parts = []
         self.empty_ext = False
         self.has_magic = True if kind else None
@@ -646,6 +663,7 @@ class _Ast(object):
 
     def copy_in(self, part):
         if isinstance(part, str):
+            self.budget.spend()
             self.push(part)
         else:
             self.push(part.clone(self))
@@ -689,6 +707,7 @@ class _Ast(object):
     def to_re(self, allow_dot=None):
         """Return (regexp source, needs unicode flag, has magic)."""
         dot = bool(allow_dot)
+        self.budget.spend()
         if self.root is self:
             self.flatten()
             self.fill_negs()
@@ -905,10 +924,10 @@ def _check_unicode_escapes(source):
         i += 1
 
 
-def _translate_part(glob):
+def _translate_part(glob, budget):
     """Return (kind, value) for one pattern part: ('re', source, uflag) or
     ('literal', text)."""
-    ast = _Ast(None, None)
+    ast = _Ast(None, None, budget)
     _parse_ast(glob, ast, 0, 0)
     source, uflag, magic = ast.to_re()
     if uflag:
@@ -931,7 +950,7 @@ def _reject_escaped_pipe(text):
             escaping = True
 
 
-def _part_matcher(glob):
+def _part_matcher(glob, budget):
     if glob == "**":
         return lambda raw, units: not raw.startswith(".")
     if glob == "":
@@ -956,11 +975,11 @@ def _part_matcher(glob):
         return lambda raw, units: not units.startswith(".") and "." in units
     if _DOT_STAR.fullmatch(glob):
         return lambda raw, units: units not in (".", "..") and units.startswith(".")
-    kind, value, uflag = _translate_part(glob)
+    kind, value, uflag = _translate_part(glob, budget)
     if kind == "literal":
         return lambda raw, units: raw == value
     if not uflag and units_glob != glob:
-        kind, value, uflag = _translate_part(units_glob)
+        kind, value, uflag = _translate_part(units_glob, budget)
         if kind == "literal":
             return lambda raw, units: units == value
     try:
@@ -989,6 +1008,7 @@ def _compile_pattern(pattern):
         offset += 1
     body = pattern[offset:]
     alternatives = []
+    budget = _Budget()
     for item in expand_braces(body):
         if "/" in item:
             # A name never contains "/", so a multi-segment alternative cannot
@@ -999,7 +1019,7 @@ def _compile_pattern(pattern):
                     "unsupported path segment in artifact pattern: {0}".format(pattern)
                 )
             continue
-        alternatives.append(_part_matcher(item))
+        alternatives.append(_part_matcher(item, budget))
 
     def match(name):
         if "/" in name:
