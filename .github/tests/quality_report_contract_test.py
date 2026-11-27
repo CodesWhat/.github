@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -176,13 +177,161 @@ class QualityReportContractTest(unittest.TestCase):
 
         self.assertEqual([1, 2], ids)
 
-    def test_selector_rejects_extglob_patterns(self):
-        with self.assertRaises(SELECTOR_MODULE["SelectionError"]) as caught:
+    def test_selector_selects_extglob_alternatives(self):
+        ids, _ = self.select(
+            [
+                self.artifact(1, "2026-08-13T12:01:00Z", name="quality-result-auth"),
+                self.artifact(2, "2026-08-13T12:01:00Z", name="quality-result-stats"),
+                self.artifact(3, "2026-08-13T12:01:00Z", name="quality-result-other"),
+            ],
+            pattern="quality-result-@(auth|stats)",
+        )
+
+        self.assertEqual([1, 2], ids)
+
+    def test_matches_agrees_with_minimatch_defaults(self):
+        # Each row was checked against minimatch 10 with default options, the
+        # matcher actions/download-artifact applies to its pattern input.
+        rows = [
+            ("quality-result-*", "quality-result-auth", True),
+            ("quality-result-*", "quality-result-", True),
+            ("quality-result-*", "quality-report-auth", False),
+            ("quality-result-{auth,stats}", "quality-result-stats", True),
+            ("quality-result-{auth,stats}", "quality-result-other", False),
+            ("result-{1..3}", "result-2", True),
+            ("result-{1..3}", "result-4", False),
+            ("{a,{b,c}}", "c", True),
+            ("a{b", "a{b", True),
+            ("quality-result-@(auth|stats)", "quality-result-auth", True),
+            ("quality-result-@(auth|stats)", "quality-result-other", False),
+            ("@(a|b)c", "bc", True),
+            ("@(a|b)c", "abc", False),
+            ("?(a|b)c", "c", True),
+            ("?(a|b)c", "abc", False),
+            ("+(x)", "xxx", True),
+            ("+(x)", "", False),
+            ("*(a|b)c", "ababc", True),
+            ("*(a|b)c", "abcd", False),
+            ("target-result-!(windows)-*", "target-result-linux-x64", True),
+            ("target-result-!(windows)-*", "target-result-windows-x64", False),
+            # a leading ! negates the whole pattern, so !(...) at the start is
+            # not an extglob: it negates the literal "(auth)*"
+            ("!(auth)*", "stats", True),
+            ("!(auth)*", "authz", True),
+            ("!(a)", "a", True),
+            ("!!(a)", "(a)", True),
+            ("!a", "b", True),
+            ("!a", "a", False),
+            ("!!a", "a", True),
+            ("#a", "#a", False),
+            ("", "", True),
+            ("", "a", False),
+            ("*", ".hidden", False),
+            ("*", "visible", True),
+            (".*", ".hidden", True),
+            ("?", ".", False),
+            ("[a-c]x", "bx", True),
+            ("[a-c]x", ".x", False),
+            ("@(.a|b)", ".a", True),
+            ("*(a|b)", ".a", False),
+            ("+(*|.a)", ".a", True),
+            ("[abc]", "b", True),
+            ("[a-c]", "d", False),
+            ("[!a]", "b", True),
+            ("[^a]", "a", False),
+            ("[a", "[a", True),
+            ("[]a]", "]", True),
+            ("[[:alpha:]]", "q", True),
+            ("[[:alpha:]]", "7", False),
+            ("[[:digit:]]x", "7x", True),
+            ("a\\*", "a*", True),
+            ("a\\*", "ab", False),
+            ("@(a|b", "@(a|b", True),
+            ("@()", "@()", True),
+            ("quality-report-.dist", "quality-report-.dist", True),
+            ("quality-report-*", "quality-report-.dist", True),
+            ("*.txt", "a.txt", True),
+            ("*.txt", ".txt", False),
+            ("Quality-*", "quality-a", False),
+        ]
+        matches = SELECTOR_MODULE["matches"]
+        for pattern, name, expected in rows:
+            with self.subTest(pattern=pattern, name=name):
+                self.assertIs(expected, matches(name, pattern))
+
+    def test_selector_refuses_constructs_it_cannot_mirror(self):
+        error = SELECTOR_MODULE["SelectionError"]
+        for pattern in ("**/quality-result-a", "quality-result-a/**", "a\\|b", "a-[[:alpha:]]"):
+            with self.subTest(pattern=pattern):
+                with self.assertRaises(error):
+                    self.select(
+                        [self.artifact(1, "2026-08-13T12:01:00Z", name="quality-result-a")],
+                        pattern=pattern,
+                    )
+
+    def refuses(self, pattern):
+        error = SELECTOR_MODULE["SelectionError"]
+        with self.assertRaises(error):
             self.select(
-                [self.artifact(1, "2026-08-13T12:01:00Z", name="quality-result-auth")],
-                pattern="quality-result-@(auth|stats)",
+                [self.artifact(1, "2026-08-13T12:01:00Z", name="quality-result-a")],
+                pattern=pattern,
             )
-        self.assertIn("extglob", str(caught.exception))
+
+    def test_oversized_brace_range_bound_is_a_selection_error(self):
+        self.refuses("a-{1.." + "9" * 4301 + "}")
+        self.refuses("a-{" + "9" * 4301 + "..1}")
+        self.assertEqual(["a-1", "a-2", "a-3"], SELECTOR_MODULE["expand_braces"]("a-{1..3}"))
+
+    def test_brace_expansion_deduplicates_a_large_range_quickly(self):
+        expanded = SELECTOR_MODULE["expand_braces"]("a-{0..99999}")
+        self.assertEqual(100000, len(expanded))
+        self.assertEqual("a-0", expanded[0])
+        self.assertEqual(["a-1", "a-2"], SELECTOR_MODULE["expand_braces"]("a-{1,2,1}"))
+
+    def test_deeply_nested_extglob_is_a_selection_error(self):
+        self.refuses("@(" * 2000 + "a" + ")" * 2000)
+        self.refuses("@(" * 65 + "a" + ")" * 65)
+        self.assertTrue(SELECTOR_MODULE["matches"]("a", "@(@(a))"))
+
+    def test_many_negation_groups_is_a_selection_error(self):
+        started = time.monotonic()
+        self.refuses("quality-result-" + "!(x)" * 14)
+        self.refuses("quality-result-" + "!(x)" * 25)
+        self.refuses("a" + "!(x|y|z)" * 8)
+        self.assertLess(time.monotonic() - started, 2)
+
+    def test_negation_copies_of_a_long_literal_are_a_selection_error(self):
+        started = time.monotonic()
+        self.refuses("quality-result-" + "!(x)" * 10 + "a" * 60000)
+        matches = SELECTOR_MODULE["matches"]
+        self.assertTrue(matches("a" * 60000, "*" + "a" * 59999))
+        self.assertLess(time.monotonic() - started, 2)
+
+    def test_ordinary_negation_groups_still_match(self):
+        matches = SELECTOR_MODULE["matches"]
+        started = time.monotonic()
+        self.assertTrue(matches("ab", "!(a)!(b)"))
+        self.assertTrue(matches("xy", "!(a)!(b)"))
+        self.assertTrue(matches("quality-result-y", "quality-result-!(x)"))
+        self.assertFalse(matches("quality-result-x", "quality-result-!(x)"))
+        self.assertTrue(matches("pre-q-r", "pre-!(a)-!(b)"))
+        self.assertFalse(matches("pre-a-r", "pre-!(a)-!(a)"))
+        eight = "q-" + "!(x)" * 8
+        self.assertTrue(matches("q-yyyyyyyy", eight))
+        self.assertTrue(matches("q-y", eight))
+        self.assertLess(time.monotonic() - started, 2)
+
+    def test_escaped_pipe_is_refused_before_suffix_shortcuts(self):
+        self.refuses("*a\\|b")
+        self.refuses("??\\|b")
+        self.assertTrue(SELECTOR_MODULE["matches"]("xa", "*a"))
+        self.assertTrue(SELECTOR_MODULE["matches"]("b", "@(a|b)"))
+
+    def test_brace_expansion_cap_never_drops_alternatives_silently(self):
+        self.refuses("!{quality-result-{0..99999},a/../b}")
+        self.refuses("!{quality-result-{0..1},a/../b}")
+        self.refuses("{0..100000}")
+        self.refuses("{0..99999}{a,b}")
 
     def test_brace_expansion_handles_nesting_and_literals(self):
         expand = SELECTOR_MODULE["expand_braces"]

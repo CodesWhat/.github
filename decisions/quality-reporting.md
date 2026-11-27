@@ -117,10 +117,18 @@ Target result JSON is always uploaded; crash forensics remain failure-only.
 Completeness requires fresh results for every expected target. The aggregate
 job downloads only artifacts matching `result_artifact_pattern` that were
 created strictly after the current attempt started, selected by explicit
-artifact ID. Results retained from an earlier attempt never count, and a
-partial rerun that lacks replacements fails closed: `complete=false`,
-`outcome=error`, no aggregate score, and a nonzero exit. An empty selection
-downloads nothing instead of falling back to every artifact.
+artifact ID. The compatibility target is minimatch 10.2.6 with its
+default options, which is what `actions/download-artifact` applies to its
+pattern; the selector does not promise every behavior of that action. `*`,
+`?`, `[...]`, `{a,b}` and `{1..3}` braces, and extglob (`@(a|b)`, `?()`,
+`+()`, `*()`, `!()`) all work. A leading `!` negates the whole pattern, so
+`!(a)*` is not an extglob. Artifact names have no path separator, so a
+pattern that needs `**` or `..` segments, that escapes a pipe, that nests
+extglobs past the parser limit, or whose brace expansion would pass its size
+cap fails the selection instead of matching. Results retained from an earlier
+attempt never count, and a partial rerun that lacks replacements fails closed:
+`complete=false`, `outcome=error`, no aggregate score, and a nonzero exit. An
+empty selection downloads nothing instead of falling back to every artifact.
 Normalized aggregate artifacts use at least 90 days of retention.
 
 The reusable workflow checks out its own contract at the exact called-workflow
