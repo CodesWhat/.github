@@ -357,6 +357,13 @@ Add these only when the behavior exists:
   Trace other consumers of the committed SVGs, such as a website, before
   removing them or the caller. The reusable workflow keeps its interface for
   existing pins.
+- [ ] A dev-branch repository whose full CI is expensive can skip repeat work
+  with this repository's composite actions, pinned to a full commit SHA like
+  the reusable workflows. `actions/changes-gate` tells a PR whether any file
+  that matters changed, so docs-only PRs can skip heavy jobs.
+  `actions/tree-receipt` lets the promotion PR and the push to `main` reuse a
+  trusted earlier run for the same tree, and falls back to a full run on any
+  doubt. Their READMEs document the inputs.
 
 ### Qlty
 

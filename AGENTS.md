@@ -8,13 +8,18 @@ contract tests that pin the shapes other repositories depend on.
 ## What lives here
 
 - `.github/workflows/go-ci.yml`, `node-ci.yml`, `release-gate.yml`,
-  `greptile-summon.yml`, `quality-report-aggregate.yml` — reusable workflows
+  `greptile-summon.yml`, `quality-report-aggregate.yml`,
+  `main-is-released.yml`, `starchart-refresh.yml`: reusable workflows
   consumed by other CodesWhat repositories.
-- `.github/tests/` — contract tests. These are the public API of the org's
+- `actions/changes-gate` and `actions/tree-receipt/{verify,record}`:
+  composite actions consumers pin the same way. Each has its own README and
+  contract test (`changes_gate_contract_test.py`,
+  `tree_receipt_contract_test.py`).
+- `.github/tests/`: contract tests. These are the public API of the org's
   shared configs (the `greptile.json` shape, the quality-report v1 contract,
   the reusable CI inputs). Change a contract test and its consumers together,
   never one side alone.
-- `profile/` — the organization profile README plus generated SVG assets
+- `profile/`: the organization profile README plus generated SVG assets
   from `scripts/generate_profile_svg.py`. The untracked
   `profile/font_reference.svg` is user-owned; leave it alone.
 
@@ -35,21 +40,36 @@ contract tests that pin the shapes other repositories depend on.
   Verify promotions with tree equality
   (`git diff --quiet origin/main origin/dev/repository-standards`), never
   commit ancestry.
-- Before opening a promotion, check dev for open code scanning alerts at
-  high or above. `main`'s ruleset blocks merges on them and dev PRs don't.
-  This must print 0:
+- After opening a promotion PR, check its code scanning result before
+  approving. `main`'s ruleset blocks merges on open alerts at high or above,
+  and CodeQL here only analyzes pull requests, on `refs/pull/<n>/merge`, so a
+  dev-branch query always returns 0 and proves nothing. Wait for an analysis
+  of the PR's current test merge commit, then count the open alerts on that
+  ref. With `n` set to the promotion PR number, run this in bash. It must
+  print 0:
 
-  ```sh
-  alerts="repos/CodesWhat/.github/code-scanning/alerts"
-  gh api --paginate \
-    "$alerts?state=open&ref=refs/heads/dev/repository-standards&per_page=100" |
+  ```bash
+  repo="repos/CodesWhat/.github"
+  ref="refs/pull/$n/merge"
+  if merge="$(gh api "$repo/pulls/$n" --jq .merge_commit_sha)" &&
+    analyses="$(gh api --paginate \
+      "$repo/code-scanning/analyses?ref=$ref&per_page=100")" &&
+    jq -se --arg m "$merge" 'any(.[][]; .commit_sha == $m)' \
+      <<<"$analyses" >/dev/null &&
+    alerts="$(gh api --paginate \
+      "$repo/code-scanning/alerts?state=open&ref=$ref&per_page=100")" &&
+    [ "$(gh api "$repo/pulls/$n" --jq .merge_commit_sha)" = "$merge" ]; then
     jq -s '[.[][] | .rule | select(.security_severity_level == "high"
       or .security_severity_level == "critical" or .severity == "error")]
-      | length'
+      | length' <<<"$alerts"
+  else
+    echo "check failed or no code scanning analysis of the merge commit yet"
+  fi
   ```
 
-  Fix each alert, or dismiss it with a reason once it's verified as a false
-  positive. Never change the ruleset to get past it.
+  Approve only at 0, at the head the check ran on, and run it again after any
+  push. Fix each alert, or dismiss it with a reason once it's
+  verified as a false positive. Never change the ruleset to get past it.
 - There is no shared admission queue; pace hosted review and heavy CI with
   the maintainer directly. Add `review-ready` for a PR's first CodeRabbit
   review and request subsequent fix-batch reviews explicitly.
